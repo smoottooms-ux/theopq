@@ -102,16 +102,43 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
 
-      - name: Rename artifacts
+      # One stable filename, so the rolling release always has exactly one
+      # APK on it. A download page with three similarly-named files is how
+      # someone ends up installing last week's build and reporting a bug that
+      # was fixed on Tuesday. The version lives in the release notes.
+      - name: Collect the APK
         run: |
           mkdir -p out
-          cp app/android/app/build/outputs/apk/debug/app-debug.apk \
-             "out/story-station-debug-1.0.${{ github.run_number }}.apk"
+          cp app/android/app/build/outputs/apk/debug/app-debug.apk out/StoryStation.apk
           if [ -f app/android/app/build/outputs/apk/release/app-release.apk ]; then
-            cp app/android/app/build/outputs/apk/release/app-release.apk \
-               "out/story-station-release-1.0.${{ github.run_number }}.apk"
+            cp app/android/app/build/outputs/apk/release/app-release.apk out/StoryStation-signed.apk
           fi
           ls -la out
+
+      # Older builds used a versioned filename, so they are still sitting on
+      # the rolling release. Clear anything that is not the current asset.
+      - name: Remove superseded APKs from the rolling release
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${{ github.repository }}"
+          release_id=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            "$api/releases/tags/android-latest" | jq -r '.id // empty')
+
+          if [ -z "$release_id" ]; then
+            echo "No rolling release yet — nothing to clean."
+            exit 0
+          fi
+
+          curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            "$api/releases/$release_id/assets" \
+            | jq -r '.[] | select(.name | test("StoryStation.*\\.apk$") | not) | "\(.id) \(.name)"' \
+            | while read -r id name; do
+                echo "Deleting superseded asset: $name"
+                curl -sS -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$api/releases/assets/$id"
+              done
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -133,22 +160,46 @@ jobs:
           files: out/*.apk
           fail_on_unmatched_files: true
           body: |
-            **Build ${{ github.run_number }}** · commit `${{ github.sha }}`
+            **Build ${{ github.run_number }}** · `${{ github.sha }}`
 
-            ## Install it
+            # 📱 How to install
 
-            1. Open this page **on the Android phone itself**.
-            2. Tap the `.apk` file below. It downloads in a few seconds.
-            3. Open the download. Android asks whether to allow installs from
-               this source — say yes. That prompt is normal for any app that
-               did not come from the Play Store.
-            4. Tap **Install**, then **Open**.
+            **Do this on the Android phone, not on a computer.**
 
-            ## What works straight away
+            ### 1. Scroll down to **Assets** and tap `StoryStation.apk`
+            There is only ever one file here. It downloads in a few seconds.
 
-            No account needed. Add a child, send a story, sign in as them and
-            play it. Stories are written on the device and read aloud by the
-            phone — labelled **"Device narrator — not a real voice"**, because
-            it isn't yours yet.
+            ### 2. Tap the download when it finishes
+            Look in your notifications, or open **Files → Downloads**.
 
-            Connect a Story Station server to unlock your own cloned voice.
+            ### 3. Android will say it can't install from this source
+            Tap **Settings** → turn on **Allow from this source** → tap **Back**.
+            This is normal for any app that did not come from the Play Store.
+
+            ### 4. Tap **Install**, then **Open**
+
+            ---
+
+            # ▶️ What to do first
+
+            The app walks you through it, but in short:
+
+            1. **Add your child** — takes thirty seconds.
+            2. **Record ten short songs.** Most are under a minute. This is the
+               only recording you ever have to do.
+            3. That's it. Every story, book and song then reads itself **in your
+               voice**, and one is sent automatically every night.
+
+            Until you record, stories are read by the phone and clearly labelled
+            **"Device narrator — not a real voice"** — because it isn't you yet.
+
+            ---
+
+            ### If something doesn't work
+
+            - **No sound and no words lighting up?** Your phone has no text-to-speech
+              voice installed. The app detects this and highlights the words at
+              reading pace instead, so you can read along together.
+            - **Microphone not working?** Allow microphone access when asked. If you
+              said no the first time, it's in Android Settings → Apps → Story Station
+              → Permissions.
