@@ -185,7 +185,7 @@ Push a `v*` tag and the APKs are attached to a GitHub Release.
 
 ### Building it locally instead
 
-Needs Node 20+, JDK 21 and the Android SDK.
+Needs Node 22+ (the Capacitor CLI requires it), JDK 21 and the Android SDK.
 
 ```bash
 cd app
