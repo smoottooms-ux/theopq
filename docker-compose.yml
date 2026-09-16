@@ -1,0 +1,57 @@
+# One-command deployment for the Nightshift server.
+#
+#   cp server/.env.example .env   # fill in your provider keys
+#   docker compose up -d
+#   docker compose exec server node dist/doctor.js
+#
+# Caddy is included because the Android WebView refuses a plaintext origin and
+# you are moving recordings of children. It obtains and renews certificates
+# automatically; set DOMAIN and point an A record at this host.
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      PORT: 8787
+      # Behind Caddy, so one proxy hop.
+      TRUST_PROXY_HOPS: 1
+    volumes:
+      - nightshift-data:/data
+    expose:
+      - '8787'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./server/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  nightshift-data:
+  caddy-data:
+  caddy-config:

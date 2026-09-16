@@ -22,6 +22,14 @@ import {
   streamMedia,
 } from './context.js';
 import { describeEntitlement, grantTrial } from './entitlements.js';
+import {
+  configureProxyTrust,
+  inspectEnvironment,
+  installGracefulShutdown,
+  reportEnvironment,
+  requestLogger,
+  securityHeaders,
+} from './runtime.js';
 import { voiceRoutes } from './routes-voice.js';
 import { contentRoutes } from './routes-content.js';
 import { billingRoutes } from './routes-billing.js';
@@ -41,6 +49,9 @@ setInterval(() => purgeExpiredSessions(db), 60 * 60_000).unref();
 
 const app = express();
 app.disable('x-powered-by');
+configureProxyTrust(app);
+app.use(securityHeaders());
+app.use(requestLogger());
 
 // CORS first: everything below it, including billing, is called from a browser.
 app.use((_req, res, next) => {
@@ -63,7 +74,35 @@ function joinCode(): string {
 
 /* ---------------- health ---------------- */
 
+/** Liveness: is the process up at all. Cheap enough to poll every second. */
 app.get('/health', (_req, res) => res.json({ ok: true, version: 2 }));
+
+/**
+ * Readiness: can this instance actually serve a family right now.
+ *
+ * Reports which paid capabilities are configured, so a deploy that is missing
+ * a provider key is visible from a dashboard rather than at bedtime.
+ */
+app.get('/ready', (_req, res) => {
+  try {
+    db.prepare('SELECT 1').get();
+  } catch (err) {
+    console.error('[ready] database unreachable:', err);
+    return res.status(503).json({ ready: false, error: 'database unavailable' });
+  }
+
+  res.json({
+    ready: true,
+    version: 2,
+    uptimeSeconds: Math.round(process.uptime()),
+    capabilities: {
+      voiceCloning: !!process.env.ELEVENLABS_API_KEY,
+      bespokeStories: !!process.env.ANTHROPIC_API_KEY,
+      checkout: !!process.env.STRIPE_SECRET_KEY && !!process.env.STRIPE_WEBHOOK_SECRET,
+      adminActions: !!process.env.ADMIN_TOKEN,
+    },
+  });
+});
 
 /* ---------------- accounts ---------------- */
 
@@ -534,10 +573,14 @@ app.use((err: Error & { type?: string }, _req: Request, res: Response, _next: Ne
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`Nightshift server listening on :${PORT}`);
-    console.log(`Data directory: ${DATA_DIR}`);
+  reportEnvironment(inspectEnvironment());
+
+  const server = app.listen(PORT, () => {
+    console.log(`[startup] Nightshift server listening on :${PORT}`);
+    console.log(`[startup] Data directory: ${DATA_DIR}`);
   });
+
+  installGracefulShutdown(server, db);
 }
 
 export { app, db };

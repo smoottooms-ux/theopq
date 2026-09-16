@@ -37,46 +37,74 @@ Google will ask. Answer honestly:
 
 ## 2. The sync server
 
-Any host that runs Node 20 and gives you a persistent disk. `DATA_DIR` must survive restarts —
-it holds the SQLite database and every audio file.
-
-### Docker
-
-```dockerfile
-FROM node:20-slim
-WORKDIR /srv
-COPY server/package*.json ./
-RUN npm ci --omit=dev
-COPY server/ ./
-RUN npm run build
-ENV DATA_DIR=/data PORT=8787
-VOLUME /data
-EXPOSE 8787
-CMD ["node", "dist/index.js"]
-```
+### Start here
 
 ```bash
-docker build -t nightshift-server .
-docker run -d -p 8787:8787 -v nightshift-data:/data --restart unless-stopped nightshift-server
+./server/scripts/setup.sh
 ```
+
+Creates `server/.env`, generates an `ADMIN_TOKEN`, installs, builds, runs the tests, and finishes
+with a pre-flight report telling you exactly what is still missing. Safe to re-run — it never
+overwrites an existing `.env`.
+
+Then put your `ELEVENLABS_API_KEY` in `server/.env` and check it:
+
+```bash
+cd server && npm run doctor
+```
+
+`doctor` doesn't just look for the variable — it calls ElevenLabs, confirms the key works,
+confirms the plan actually includes Instant Voice Cloning, and tells you how many stories your
+remaining character quota is worth. It exits non-zero when something would break the product, so
+you can use it as a deploy gate:
+
+```bash
+npm run doctor && npm start
+```
+
+### Running it
+
+Pick one. All four read the same `.env`.
+
+| | Command | Notes |
+|---|---|---|
+| **Docker + TLS** | `docker compose up -d` | Recommended. Caddy gets certificates automatically — set `DOMAIN` in `.env`. |
+| **Docker alone** | `docker build -t nightshift server && docker run -d -p 8787:8787 -v nightshift-data:/data --env-file .env nightshift` | You supply TLS. |
+| **Fly.io** | `fly deploy --config server/deploy/fly.toml --dockerfile server/Dockerfile` | Create the volume first; see comments in the file. |
+| **Render** | Point a Blueprint at `server/deploy/render.yaml` | Set the secret env vars in the dashboard. |
+| **Bare VPS** | `server/deploy/nightshift.service` | systemd unit, hardened, plus `nginx.conf` for the proxy. |
+
+**One instance only.** SQLite has exactly one writer. Every config here pins a single machine on
+purpose — do not scale it horizontally without moving to Postgres first.
+
+### What the server does on startup
+
+It inspects its own configuration and says so plainly in the logs. Missing voice key → warning, and
+it serves stories anyway. A Stripe key with no webhook secret → **fatal, and it refuses to start**,
+because that combination takes money and never learns the payment succeeded.
+
+Two probes:
+
+- `GET /health` — liveness. Cheap, no database access.
+- `GET /ready` — readiness. Touches the database and reports which capabilities are configured, so
+  a deploy missing a provider key is visible from a dashboard instead of at bedtime.
+
+On `SIGTERM` it stops accepting connections, lets in-flight requests finish, checkpoints the SQLite
+WAL and closes cleanly, with a 15-second cap before it gives up.
 
 ### Behind a reverse proxy
 
-Audio uploads can reach 25 MB, so raise the proxy's body limit or uploads fail with a confusing
-413:
+Both bundled configs already handle this, but if you write your own: audio uploads reach 25 MB, so
+raise the body limit or they fail with a confusing 413, and raise read timeouts to ~180s because
+generating narration for a long story is not fast.
 
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:8787;
-    client_max_body_size 30m;
-    proxy_read_timeout 120s;
-}
-```
+Set `TRUST_PROXY_HOPS` to the number of proxies in front of the server, or rate limiting sees your
+proxy's IP for everyone.
 
-Put it behind HTTPS. The Android WebView will refuse a plaintext origin, and you are moving
-recordings of children.
+Put it behind HTTPS. The Android WebView refuses a plaintext origin, and you are moving recordings
+of children.
 
-Set `CORS_ORIGIN` to your web app's origin in production rather than leaving it `*`.
+Set `CORS_ORIGIN` to your app's origin rather than leaving it `*`.
 
 ### Environment
 
@@ -119,16 +147,23 @@ plan is underpriced or they're your best case study — find out which.
 
 ### Backups
 
-Two things matter and they are both in `DATA_DIR`:
-
 ```bash
-# SQLite is in WAL mode, so use the backup API rather than copying the file
-sqlite3 "$DATA_DIR/nightshift.db" ".backup '/backups/nightshift-$(date +%F).db'"
-rsync -a "$DATA_DIR/media/" /backups/media/
+./server/scripts/backup.sh /path/to/backups
 ```
 
-The media directory is the irreplaceable part — those are recordings of a parent's voice and a
-child talking back.
+Takes a consistent SQLite snapshot with the backup API (copying a WAL-mode database mid-write
+gives you a torn file), hard-links the media directory against the previous snapshot so a month of
+dailies costs almost nothing, and prunes anything older than 30 days.
+
+Put it in cron, nightly:
+
+```cron
+0 4 * * * cd /opt/nightshift && DATA_DIR=/var/lib/nightshift ./server/scripts/backup.sh /backups
+```
+
+**Test a restore before you need one.** The media directory is the irreplaceable part — those are
+recordings of a parent's voice and of their child talking back. Losing them is not something you
+can apologise your way out of.
 
 ---
 

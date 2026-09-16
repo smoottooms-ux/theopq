@@ -1,0 +1,50 @@
+# systemd unit for running the server directly on a VPS, without Docker.
+#
+#   sudo cp server/deploy/nightshift.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nightshift
+#   journalctl -u nightshift -f
+
+[Unit]
+Description=Nightshift sync server
+Documentation=https://github.com/smoottooms-ux/theopq
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nightshift
+Group=nightshift
+WorkingDirectory=/opt/nightshift/server
+
+Environment=NODE_ENV=production
+Environment=DATA_DIR=/var/lib/nightshift
+Environment=TRUST_PROXY_HOPS=1
+EnvironmentFile=/etc/nightshift/env
+
+ExecStart=/usr/bin/node dist/index.js
+
+# The process drains in-flight requests and checkpoints SQLite on SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+
+# It only ever needs to read its own code and write its data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nightshift
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nightshift
+
+[Install]
+WantedBy=multi-user.target

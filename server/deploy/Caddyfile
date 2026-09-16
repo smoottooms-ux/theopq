@@ -1,0 +1,30 @@
+# Terminates TLS and forwards to the Nightshift server.
+#
+# Certificates are obtained and renewed automatically. Set DOMAIN in .env and
+# point an A record at this host; use `localhost` for local testing, which
+# issues an internal certificate instead.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Audio uploads reach 25 MB. Without this the proxy rejects them with a
+	# 413 that looks, from the app, like a mysterious failure at bedtime.
+	request_body {
+		max_size 30MB
+	}
+
+	reverse_proxy server:8787 {
+		header_up X-Real-IP {remote_host}
+
+		# Narration can take a while to generate on a long story.
+		transport http {
+			read_timeout 180s
+			write_timeout 180s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

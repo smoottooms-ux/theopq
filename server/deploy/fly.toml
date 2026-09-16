@@ -1,0 +1,49 @@
+# Fly.io deployment.
+#
+#   fly launch --no-deploy --copy-config --config server/deploy/fly.toml
+#   fly volumes create nightshift_data --size 10
+#   fly secrets set ELEVENLABS_API_KEY=... ANTHROPIC_API_KEY=... ADMIN_TOKEN=...
+#   fly deploy --config server/deploy/fly.toml --dockerfile server/Dockerfile
+#
+# The volume is the whole product: it holds the database and every recording.
+# Never run more than one machine against it — SQLite is not shared storage.
+
+app = "nightshift-server"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "../Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "8787"
+  DATA_DIR = "/data"
+  TRUST_PROXY_HOPS = "1"
+
+[[mounts]]
+  source = "nightshift_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # SQLite means exactly one writer. Do not raise these.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+[[http_service.checks]]
+  grace_period = "15s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/ready"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -226,12 +226,20 @@ the tab is alive.
 ## Running the sync server
 
 ```bash
-cd server
-cp .env.example .env      # add your ELEVENLABS_API_KEY and ANTHROPIC_API_KEY
-npm install
-npm run build
-npm start                 # listens on :8787
+./server/scripts/setup.sh          # creates .env, builds, tests, pre-flight report
+# put your ELEVENLABS_API_KEY in server/.env, then:
+cd server && npm run doctor        # calls the providers and proves the setup works
+npm start                          # or: docker compose up -d   (adds TLS via Caddy)
 ```
+
+`npm run doctor` is the one to remember. It calls ElevenLabs, confirms the key works, confirms the
+plan includes Instant Voice Cloning, and reports how many stories your remaining quota is worth. It
+exits non-zero on anything that would break the product, so it works as a deploy gate.
+
+Deployment configs for Docker Compose, Fly, Render and bare systemd are in `server/deploy/`. Full
+walkthrough in [docs/DEPLOY.md](docs/DEPLOY.md).
+
+**One instance only** — SQLite has a single writer.
 
 Every variable is documented in `server/.env.example`. The two that unlock the paid features are
 `ELEVENLABS_API_KEY` (voice cloning and narration) and `ANTHROPIC_API_KEY` (bespoke story writing).
