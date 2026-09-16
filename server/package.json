@@ -1,7 +1,7 @@
 {
-  "name": "nightshift-server",
+  "name": "story-station-server",
   "version": "1.0.0",
-  "description": "Sync server for Nightshift: moves stories between a parent account and a child account.",
+  "description": "Sync server for Story Station: moves stories between a parent account and a child account.",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

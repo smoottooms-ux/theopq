@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace = "com.opq.nightshift"
+    namespace = "com.opq.storystation"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.opq.nightshift"
+        applicationId "com.opq.storystation"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // Bumped by CI: versionCode comes from the build number when present.

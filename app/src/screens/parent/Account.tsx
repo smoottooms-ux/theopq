@@ -16,7 +16,7 @@ import { checkServer, cloudSignIn, cloudSignUp, defaultServerUrl, pushChild } fr
 import { HAS_HOSTED_BACKEND } from '../../lib/config';
 
 /**
- * The Nightshift account.
+ * The Story Station account.
  *
  * There is exactly one account in this product and it is ours. No API keys, no
  * third-party sign-ups, no "create an ElevenLabs account first" — that is the
@@ -153,7 +153,7 @@ export default function AccountScreen() {
             className="btn btn--ghost btn--block btn--sm"
             onClick={() => {
               disconnect();
-              toast('Signed out of your Nightshift account on this device.');
+              toast('Signed out of your Story Station account on this device.');
             }}
           >
             Sign out of this device

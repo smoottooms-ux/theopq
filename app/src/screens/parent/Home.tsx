@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
@@ -6,12 +6,24 @@ import { describeSchedule, nextBedtime } from '../../lib/delivery';
 import { voiceDescription } from '../../lib/voice';
 import { TopBar, Empty } from '../../components/ui';
 import { IconGear, IconMic, IconPlus, IconSpark } from '../../components/Icons';
+import { Coach } from '../../components/Coach';
+import { planTonight, buildAutoStory } from '../../lib/autopilot';
+import { voiceProgress, VOICE_TARGET } from '../../lib/playback';
 import type { Child, Story } from '../../types';
 
 export default function ParentHome() {
   const navigate = useNavigate();
-  const { data, parent } = useApp();
+  const { data, parent, addStory } = useApp();
   const { account, connected } = useCloud({ autoSync: true });
+  const progress = useMemo(() => voiceProgress(data, parent?.id), [data, parent?.id]);
+
+  // Auto-pilot fills tonight's gap the moment the app opens, so a parent who
+  // never comes back still has something waiting for their child at bedtime.
+  const pending = useMemo(() => planTonight(data, parent), [data, parent]);
+  useEffect(() => {
+    if (!parent || pending.length === 0) return;
+    for (const pick of pending) addStory(buildAutoStory(parent, pick.child, pick.item));
+  }, [parent, pending, addStory]);
 
   const voice = useMemo(
     () => data.voices.find((v) => v.parentId === parent?.id),
@@ -82,6 +94,44 @@ export default function ParentHome() {
           </div>
         </button>
       )}
+
+      <Coach
+        when={data.children.length === 0}
+        title="Start here: add your child"
+        action={
+          <button className="btn btn--sm" onClick={() => navigate('/p/family')}>
+            <IconPlus size={16} /> Add a child
+          </button>
+        }
+      >
+        Nothing can be sent until there is someone to send it to. Takes about thirty seconds.
+      </Coach>
+
+      <Coach
+        when={data.children.length > 0 && progress.recorded === 0}
+        title={`Next: record ${VOICE_TARGET} short songs`}
+        action={
+          <button className="btn btn--sm" onClick={() => navigate('/p/record')}>
+            <IconMic size={16} /> Show me the list
+          </button>
+        }
+      >
+        Most are under a minute. After that, every story and song reads itself in your voice and
+        you never have to record again.
+      </Coach>
+
+      <Coach
+        when={progress.recorded > 0 && progress.recorded < VOICE_TARGET}
+        title={`${progress.remaining} recordings to go`}
+        action={
+          <button className="btn btn--sm" onClick={() => navigate('/p/record')}>
+            Carry on
+          </button>
+        }
+      >
+        You are {progress.recorded} of {VOICE_TARGET} through. Each one is under a minute, and your
+        child can already hear the ones you have done.
+      </Coach>
 
       {connected && voice?.status !== 'ready' && (
         <button
@@ -160,6 +210,16 @@ export default function ParentHome() {
 
       <div className="section-label">Also here</div>
       <div className="stack">
+        <QuickLink
+          emoji="🎙️"
+          title="Record your voice"
+          body={
+            progress.ready
+              ? 'Done — everything reads itself in your voice now.'
+              : `${progress.recorded} of ${VOICE_TARGET} short recordings done.`
+          }
+          onClick={() => navigate('/p/record')}
+        />
         <QuickLink
           emoji="🎵"
           title="Lullabies"

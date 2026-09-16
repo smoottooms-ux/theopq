@@ -1,26 +1,26 @@
 # systemd unit for running the server directly on a VPS, without Docker.
 #
-#   sudo cp server/deploy/nightshift.service /etc/systemd/system/
+#   sudo cp server/deploy/storystation.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now nightshift
-#   journalctl -u nightshift -f
+#   sudo systemctl enable --now storystation
+#   journalctl -u storystation -f
 
 [Unit]
-Description=Nightshift sync server
+Description=Story Station sync server
 Documentation=https://github.com/smoottooms-ux/theopq
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=nightshift
-Group=nightshift
-WorkingDirectory=/opt/nightshift/server
+User=storystation
+Group=storystation
+WorkingDirectory=/opt/storystation/server
 
 Environment=NODE_ENV=production
-Environment=DATA_DIR=/var/lib/nightshift
+Environment=DATA_DIR=/var/lib/storystation
 Environment=TRUST_PROXY_HOPS=1
-EnvironmentFile=/etc/nightshift/env
+EnvironmentFile=/etc/storystation/env
 
 ExecStart=/usr/bin/node dist/index.js
 
@@ -35,7 +35,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/nightshift
+ReadWritePaths=/var/lib/storystation
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -44,7 +44,7 @@ LockPersonality=true
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=nightshift
+SyslogIdentifier=storystation
 
 [Install]
 WantedBy=multi-user.target

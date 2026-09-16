@@ -50,9 +50,9 @@ export async function enrollVoice(
   form.append('name', label);
   form.append(
     'description',
-    'Bedtime narration voice, enrolled with recorded consent inside the Nightshift app.',
+    'Bedtime narration voice, enrolled with recorded consent inside the Story Station app.',
   );
-  form.append('labels', JSON.stringify({ app: 'nightshift', use: 'bedtime-stories' }));
+  form.append('labels', JSON.stringify({ app: 'storystation', use: 'bedtime-stories' }));
 
   samples.forEach((sample, i) => {
     form.append(

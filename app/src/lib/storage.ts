@@ -10,6 +10,7 @@ export const emptyData = (): AppData => ({
   voices: [],
   stories: [],
   lullabies: [],
+  recordings: [],
   replies: [],
   cards: [],
   sessions: [],
@@ -18,6 +19,9 @@ export const emptyData = (): AppData => ({
     dailyGameMinutes: 30,
     storyBeforeGames: false,
     notificationsEnabled: true,
+    autoPilot: true,
+    autoPilotShelves: ['story', 'learning-book', 'song'],
+    onboarded: false,
   },
   version: 1,
 });

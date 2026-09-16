@@ -109,7 +109,7 @@ export default function VoiceStudio() {
       return toast(`Type "${parent.name}" exactly to confirm it is your voice.`);
     }
     if (!cloud) {
-      return toast('Sign in to your Nightshift account first — voice building happens there.');
+      return toast('Sign in to your Story Station account first — voice building happens there.');
     }
 
     setSubmitting(true);
@@ -236,7 +236,7 @@ export default function VoiceStudio() {
   /* ------------------------- enrollment ------------------------- */
 
   const blocked = !cloud
-    ? 'Sign in to your Nightshift account to build your voice.'
+    ? 'Sign in to your Story Station account to build your voice.'
     : account && !account.capabilities.voiceCloning
       ? 'Voice building is temporarily unavailable. Your recordings are safe on this device.'
       : account?.entitlement.status === 'expired'
@@ -419,7 +419,7 @@ export default function VoiceStudio() {
             />
             <span className="soft">
               This is <strong>my own voice</strong>. I am not cloning anyone else. I understand the
-              recordings are sent to Nightshift to build the model, that they are deleted once it is
+              recordings are sent to Story Station to build the model, that they are deleted once it is
               built, and that I can remove the voice at any time.
             </span>
           </label>

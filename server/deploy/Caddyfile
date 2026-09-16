@@ -1,4 +1,4 @@
-# Terminates TLS and forwards to the Nightshift server.
+# Terminates TLS and forwards to the Story Station server.
 #
 # Certificates are obtained and renewed automatically. Set DOMAIN in .env and
 # point an A record at this host; use `localhost` for local testing, which

@@ -1,4 +1,4 @@
-# Deploying Nightshift
+# Deploying Story Station
 
 Three things can be deployed independently. You need the app; the server and a voice provider are
 both optional.
@@ -11,7 +11,7 @@ CI builds it — see the README. If you want a store listing:
 
 1. Generate a keystore once and **keep it forever** (losing it means you can never update the app):
    ```bash
-   keytool -genkey -v -keystore release.keystore -alias nightshift \
+   keytool -genkey -v -keystore release.keystore -alias storystation \
            -keyalg RSA -keysize 2048 -validity 10000
    ```
 2. Add the four `ANDROID_*` secrets listed in the README.
@@ -69,10 +69,10 @@ Pick one. All four read the same `.env`.
 | | Command | Notes |
 |---|---|---|
 | **Docker + TLS** | `docker compose up -d` | Recommended. Caddy gets certificates automatically — set `DOMAIN` in `.env`. |
-| **Docker alone** | `docker build -t nightshift server && docker run -d -p 8787:8787 -v nightshift-data:/data --env-file .env nightshift` | You supply TLS. |
+| **Docker alone** | `docker build -t storystation server && docker run -d -p 8787:8787 -v story-station-data:/data --env-file .env storystation` | You supply TLS. |
 | **Fly.io** | `fly deploy --config server/deploy/fly.toml --dockerfile server/Dockerfile` | Create the volume first; see comments in the file. |
 | **Render** | Point a Blueprint at `server/deploy/render.yaml` | Set the secret env vars in the dashboard. |
-| **Bare VPS** | `server/deploy/nightshift.service` | systemd unit, hardened, plus `nginx.conf` for the proxy. |
+| **Bare VPS** | `server/deploy/storystation.service` | systemd unit, hardened, plus `nginx.conf` for the proxy. |
 
 **One instance only.** SQLite has exactly one writer. Every config here pins a single machine on
 purpose — do not scale it horizontally without moving to Postgres first.
@@ -158,7 +158,7 @@ dailies costs almost nothing, and prunes anything older than 30 days.
 Put it in cron, nightly:
 
 ```cron
-0 4 * * * cd /opt/nightshift && DATA_DIR=/var/lib/nightshift ./server/scripts/backup.sh /backups
+0 4 * * * cd /opt/storystation && DATA_DIR=/var/lib/storystation ./server/scripts/backup.sh /backups
 ```
 
 **Test a restore before you need one.** The media directory is the irreplaceable part — those are

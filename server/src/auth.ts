@@ -45,7 +45,7 @@ export const verifySecret = verifyPin;
 export function checkPasswordStrength(password: string): string | null {
   if (password.length < 8) return 'Passwords need at least 8 characters.';
   if (/^(.)\1+$/.test(password)) return 'That is the same character repeated.';
-  const common = ['password', 'password1', '12345678', 'qwerty123', 'letmein', 'nightshift'];
+  const common = ['password', 'password1', '12345678', 'qwerty123', 'letmein', 'storystation'];
   if (common.includes(password.toLowerCase())) return 'That password is too easy to guess.';
   return null;
 }

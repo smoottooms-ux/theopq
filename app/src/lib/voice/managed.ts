@@ -6,7 +6,7 @@ import type { VoiceProvider } from './types';
  * Unlike the other providers this one does no work in the app: enrollment and
  * synthesis both happen on our server, against the operator's provider
  * account. That is deliberate — it is why a customer never signs up for
- * anything except Nightshift.
+ * anything except Story Station.
  *
  * The screens call `lib/cloud.ts` directly; this entry exists so the voice
  * picker, the honest labelling and the fallback ladder all have something to

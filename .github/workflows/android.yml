@@ -106,17 +106,17 @@ jobs:
         run: |
           mkdir -p out
           cp app/android/app/build/outputs/apk/debug/app-debug.apk \
-             "out/nightshift-debug-1.0.${{ github.run_number }}.apk"
+             "out/story-station-debug-1.0.${{ github.run_number }}.apk"
           if [ -f app/android/app/build/outputs/apk/release/app-release.apk ]; then
             cp app/android/app/build/outputs/apk/release/app-release.apk \
-               "out/nightshift-release-1.0.${{ github.run_number }}.apk"
+               "out/story-station-release-1.0.${{ github.run_number }}.apk"
           fi
           ls -la out
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: nightshift-apk-${{ github.run_number }}
+          name: story-station-apk-${{ github.run_number }}
           path: out/*.apk
           retention-days: 90
           if-no-files-found: error
@@ -128,7 +128,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'android-latest' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'Nightshift — latest Android build' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'Story Station — latest Android build' }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
           files: out/*.apk
           fail_on_unmatched_files: true
@@ -151,4 +151,4 @@ jobs:
             phone — labelled **"Device narrator — not a real voice"**, because
             it isn't yours yet.
 
-            Connect a Nightshift server to unlock your own cloned voice.
+            Connect a Story Station server to unlock your own cloned voice.

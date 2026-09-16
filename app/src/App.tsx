@@ -16,6 +16,7 @@ import {
   IconChart,
   IconGame,
   IconHome,
+  IconMic,
   IconMoon,
   IconMusic,
   IconSpark,
@@ -23,6 +24,7 @@ import {
 } from './components/Icons';
 
 import Welcome from './screens/Welcome';
+import Onboarding from './screens/Onboarding';
 import SignIn from './screens/auth/SignIn';
 import SignUp from './screens/auth/SignUp';
 import KidPicker from './screens/auth/KidPicker';
@@ -37,6 +39,8 @@ import ParentLibrary from './screens/parent/Library';
 import FamilyScreen from './screens/parent/Family';
 import ProgressScreen from './screens/parent/Progress';
 import SettingsScreen from './screens/parent/Settings';
+import RecordHub from './screens/parent/RecordHub';
+import RecordingStudio from './screens/parent/RecordingStudio';
 import AccountScreen from './screens/parent/Account';
 import PlanScreen from './screens/parent/Plan';
 import LullabiesScreen from './screens/parent/Lullabies';
@@ -49,6 +53,9 @@ import GamesHub from './screens/child/GamesHub';
 import GameRunner from './screens/child/GameRunner';
 import ReplyRecorder from './screens/child/ReplyRecorder';
 import LullabyPlayer from './screens/child/LullabyPlayer';
+import Shelf from './screens/child/Shelf';
+import LearningHub from './screens/child/LearningHub';
+import LibraryPlayer from './screens/child/LibraryPlayer';
 
 export default function App() {
   const { session, loading } = useApp();
@@ -97,6 +104,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route path="/welcome" element={<Welcome />} />
+        <Route path="/start" element={<Onboarding />} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot" element={<ForgotPassword />} />
@@ -115,6 +123,8 @@ export default function App() {
         <Route path="/p/plan" element={<RequireRole role="parent"><PlanScreen /></RequireRole>} />
         <Route path="/p/lullabies" element={<RequireRole role="parent"><LullabiesScreen /></RequireRole>} />
         <Route path="/p/journal" element={<RequireRole role="parent"><JournalScreen /></RequireRole>} />
+        <Route path="/p/record" element={<RequireRole role="parent"><RecordHub /></RequireRole>} />
+        <Route path="/p/record/:itemId" element={<RequireRole role="parent"><RecordingStudio /></RequireRole>} />
 
         <Route path="/c" element={<RequireRole role="child"><ChildHome /></RequireRole>} />
         <Route path="/c/story/:storyId" element={<RequireRole role="child"><Player /></RequireRole>} />
@@ -123,6 +133,9 @@ export default function App() {
         <Route path="/c/games/:gameId" element={<RequireRole role="child"><GameRunner /></RequireRole>} />
         <Route path="/c/reply/:storyId" element={<RequireRole role="child"><ReplyRecorder /></RequireRole>} />
         <Route path="/c/lullabies" element={<RequireRole role="child"><LullabyPlayer /></RequireRole>} />
+        <Route path="/c/shelf/:kind" element={<RequireRole role="child"><Shelf /></RequireRole>} />
+        <Route path="/c/learning" element={<RequireRole role="child"><LearningHub /></RequireRole>} />
+        <Route path="/c/read/:itemId" element={<RequireRole role="child"><LibraryPlayer /></RequireRole>} />
 
         <Route path="*" element={<RootRedirect />} />
       </Routes>
@@ -133,9 +146,13 @@ export default function App() {
 }
 
 function RootRedirect() {
-  const { session } = useApp();
+  const { session, data } = useApp();
   if (session?.role === 'parent') return <Navigate to="/p" replace />;
   if (session?.role === 'child') return <Navigate to="/c" replace />;
+  // A brand new install gets the walkthrough before it gets a form.
+  if (!data.settings.onboarded && data.parents.length === 0) {
+    return <Navigate to="/start" replace />;
+  }
   return <Navigate to="/welcome" replace />;
 }
 
@@ -151,7 +168,7 @@ function ParentTabs() {
     <nav className="tabbar" aria-label="Main">
       <Tab to="/p" icon={<IconHome />} label="Tonight" end />
       <Tab to="/p/story" icon={<IconSpark />} label="Create" />
-      <Tab to="/p/lullabies" icon={<IconMoon />} label="Lullaby" />
+      <Tab to="/p/record" icon={<IconMic />} label="Record" />
       <Tab to="/p/family" icon={<IconUsers />} label="Family" />
       <Tab to="/p/progress" icon={<IconChart />} label="Progress" />
     </nav>
@@ -162,7 +179,8 @@ function ChildTabs() {
   return (
     <nav className="tabbar" aria-label="Main">
       <Tab to="/c" icon={<IconMoon />} label="Tonight" end />
-      <Tab to="/c/books" icon={<IconBook />} label="Books" />
+      <Tab to="/c/shelf/story" icon={<IconBook />} label="Stories" />
+      <Tab to="/c/learning" icon={<IconSpark />} label="Learning" />
       <Tab to="/c/lullabies" icon={<IconMusic />} label="Lullaby" />
       <Tab to="/c/games" icon={<IconGame />} label="Play" />
     </nav>

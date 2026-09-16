@@ -27,7 +27,7 @@ export default function Welcome() {
           >
             <IconMoon size={46} />
           </div>
-          <h1 style={{ fontSize: 38, marginBottom: 10 }}>Nightshift</h1>
+          <h1 style={{ fontSize: 38, marginBottom: 10 }}>Story Station</h1>
           <p className="soft" style={{ maxWidth: 330, margin: '0 auto' }}>
             You are at work. They are going to bed. This is how you are still the one
             who reads the story.

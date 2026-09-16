@@ -4,7 +4,7 @@ import { id } from './ids';
 import { API_URL } from './config';
 
 /**
- * Talks to the Nightshift sync server.
+ * Talks to the Story Station sync server.
  *
  * This is what makes "the same app" true across two devices: a parent in a
  * truck stop pushes the story, the child's tablet pulls it. When no server is

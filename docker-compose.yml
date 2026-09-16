@@ -1,4 +1,4 @@
-# One-command deployment for the Nightshift server.
+# One-command deployment for the Story Station server.
 #
 #   cp server/.env.example .env   # fill in your provider keys
 #   docker compose up -d
@@ -22,7 +22,7 @@ services:
       # Behind Caddy, so one proxy hop.
       TRUST_PROXY_HOPS: 1
     volumes:
-      - nightshift-data:/data
+      - story-station-data:/data
     expose:
       - '8787'
     healthcheck:
@@ -52,6 +52,6 @@ services:
       - caddy-config:/config
 
 volumes:
-  nightshift-data:
+  story-station-data:
   caddy-data:
   caddy-config:

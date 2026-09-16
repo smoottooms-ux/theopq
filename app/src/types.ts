@@ -157,6 +157,10 @@ export interface Story {
   voiceProvider: VoiceProviderId;
   /** Key into the local audio blob store. */
   audioKey?: string;
+  /** Set when this story came from the built-in library rather than being written. */
+  libraryItemId?: string;
+  /** Set when auto-pilot queued it rather than a parent choosing it. */
+  autoPilot?: boolean;
   durationEstimate: number;
   status: StoryStatus;
   scheduledFor: number;
@@ -165,6 +169,27 @@ export interface Story {
   playedAt?: number;
   playCount: number;
   failureReason?: string;
+}
+
+/**
+ * A parent's own recording of a library item.
+ *
+ * These are the highest-fidelity thing in the app — actually them, actually
+ * reading — and they double as the training material for the cloned voice, so
+ * a parent's effort is never spent only on enrolment.
+ */
+export interface VoiceRecording {
+  id: string;
+  itemId: string;
+  parentId: string;
+  parentName: string;
+  audioKey: string;
+  duration: number;
+  /** 0-1 from the on-device quality check. */
+  quality: number;
+  createdAt: number;
+  /** Set once this take has been used to build the voice. */
+  usedForVoiceAt?: number;
 }
 
 export interface LullabyDelivery {
@@ -246,6 +271,12 @@ export interface Settings {
   /** Preferred sleep sound and timer on the child's device. */
   ambientId?: string;
   sleepTimerMinutes?: number;
+  /** Send something every night without the parent doing anything. */
+  autoPilot: boolean;
+  /** Which shelves auto-pilot draws from, in rotation. */
+  autoPilotShelves: ('story' | 'learning-book' | 'song' | 'lullaby')[];
+  /** Whether the first-run walkthrough has been completed. */
+  onboarded: boolean;
 }
 
 export interface AppData {
@@ -255,6 +286,7 @@ export interface AppData {
   voices: VoiceProfile[];
   stories: Story[];
   lullabies: LullabyDelivery[];
+  recordings: VoiceRecording[];
   replies: ChildReply[];
   cards: SkillCard[];
   sessions: GameSession[];

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-command setup for the Nightshift server.
+# One-command setup for the Story Station server.
 #
 #   ./server/scripts/setup.sh
 #
@@ -21,7 +21,7 @@ warn() { printf '\033[33m!\033[0m %s\n' "$1"; }
 die()  { printf '\033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 echo
-bold "Nightshift server setup"
+bold "Story Station server setup"
 dim "────────────────────────────────────────────"
 
 # ---------- prerequisites ----------

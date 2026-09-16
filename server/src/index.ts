@@ -40,7 +40,7 @@ import { contentRoutes } from './routes-content.js';
 import { billingRoutes } from './routes-billing.js';
 
 /**
- * Nightshift sync server.
+ * Story Station sync server.
  *
  * Small on purpose. It exists so a parent's phone and a child's tablet are the
  * same account from two places — nothing more. It does not generate stories,
@@ -741,7 +741,7 @@ if (process.env.NODE_ENV !== 'test') {
   reportEnvironment(inspectEnvironment());
 
   const server = app.listen(PORT, () => {
-    console.log(`[startup] Nightshift server listening on :${PORT}`);
+    console.log(`[startup] Story Station server listening on :${PORT}`);
     console.log(`[startup] Data directory: ${DATA_DIR}`);
   });
 

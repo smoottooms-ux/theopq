@@ -1,6 +1,6 @@
 {
-  "name": "Nightshift — bedtime in your voice",
-  "short_name": "Nightshift",
+  "name": "Story Station — bedtime in your voice",
+  "short_name": "Story Station",
   "description": "Bedtime stories read in a parent's own voice, plus learning games, for families split up by shift work.",
   "start_url": "./",
   "scope": "./",

@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Nightshift</string>
-    <string name="title_activity_main">Nightshift</string>
-    <string name="package_name">com.opq.nightshift</string>
-    <string name="custom_url_scheme">com.opq.nightshift</string>
+    <string name="app_name">Story Station</string>
+    <string name="title_activity_main">Story Station</string>
+    <string name="package_name">com.opq.storystation</string>
+    <string name="custom_url_scheme">com.opq.storystation</string>
 </resources>

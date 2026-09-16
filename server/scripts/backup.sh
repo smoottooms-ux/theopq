@@ -21,11 +21,11 @@ mkdir -p "$TARGET"
 # SQLite runs in WAL mode, so copying the file mid-write gives a torn database.
 # .backup takes a consistent snapshot while the server keeps serving.
 if command -v sqlite3 >/dev/null 2>&1; then
-  sqlite3 "$DATA_DIR/nightshift.db" ".backup '$TARGET/nightshift.db'"
+  sqlite3 "$DATA_DIR/storystation.db" ".backup '$TARGET/storystation.db'"
 else
   echo "sqlite3 not installed — falling back to a file copy." >&2
   echo "Stop the server first, or this snapshot may be inconsistent." >&2
-  cp "$DATA_DIR/nightshift.db"* "$TARGET/"
+  cp "$DATA_DIR/storystation.db"* "$TARGET/"
 fi
 
 # Audio only ever gets added to, so a link-based mirror stays cheap.

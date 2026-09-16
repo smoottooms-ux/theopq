@@ -102,7 +102,7 @@ export interface PasswordVerdict {
 const COMMON = new Set([
   'password', 'password1', '12345678', '123456789', 'qwerty123', 'letmein',
   'iloveyou', 'welcome1', 'admin123', 'passw0rd', 'football', 'baseball',
-  'sunshine', 'princess', 'trustno1', 'nightshift',
+  'sunshine', 'princess', 'trustno1', 'storystation',
 ]);
 
 /**

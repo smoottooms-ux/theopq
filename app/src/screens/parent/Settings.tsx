@@ -66,6 +66,12 @@ export default function SettingsScreen() {
       <div className="section-label">Nightly routine</div>
       <div className="card stack">
         <Row
+          title="Auto-pilot"
+          body="Sends something every night on its own, rotating through the library, so you never have to remember."
+          checked={data.settings.autoPilot}
+          onToggle={() => setSettings({ autoPilot: !data.settings.autoPilot })}
+        />
+        <Row
           title="Bedtime notification"
           body="Fires on each child's device at their bedtime."
           checked={data.settings.notificationsEnabled}

@@ -131,8 +131,18 @@ export class Recorder {
   private chunks: Blob[] = [];
   private ctx?: AudioContext;
   private analyser?: AnalyserNode;
+  private monitorGain?: GainNode;
   private raf = 0;
   private startedAt = 0;
+
+  /**
+   * Play the microphone back to the person recording.
+   *
+   * Only ever safe on headphones: through a speaker the microphone hears its
+   * own output and the result is a howl. The UI gates this behind an explicit
+   * "I have headphones in", and it starts at a low gain regardless.
+   */
+  monitor = false;
 
   /** Rolling stats used by the quality check. */
   private peak = 0;
@@ -147,8 +157,11 @@ export class Recorder {
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
+        // Cancellation and suppression are turned off while monitoring,
+        // because they fight the guide track playing in the headphones and
+        // chew holes in the recording.
+        echoCancellation: !this.monitor,
+        noiseSuppression: !this.monitor,
         autoGainControl: false, // AGC pumps the floor and hurts clone quality.
         channelCount: 1,
       },
@@ -178,6 +191,14 @@ export class Recorder {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
     source.connect(this.analyser);
+
+    if (this.monitor) {
+      // Deliberately below unity: loud enough to hear yourself, quiet enough
+      // that a headphone that slips off does not immediately feed back.
+      this.monitorGain = this.ctx.createGain();
+      this.monitorGain.gain.value = 0.55;
+      source.connect(this.monitorGain).connect(this.ctx.destination);
+    }
 
     const buf = new Float32Array(this.analyser.fftSize);
     const tick = () => {
@@ -242,8 +263,15 @@ export class Recorder {
     this.teardown();
   }
 
+  /** Turns self-monitoring on or off without interrupting the take. */
+  setMonitorLevel(level: number): void {
+    if (this.monitorGain) this.monitorGain.gain.value = Math.max(0, Math.min(1, level));
+  }
+
   private teardown(): void {
     cancelAnimationFrame(this.raf);
+    this.monitorGain?.disconnect();
+    this.monitorGain = undefined;
     this.analyser?.disconnect();
     this.analyser = undefined;
     void this.ctx?.close().catch(() => undefined);

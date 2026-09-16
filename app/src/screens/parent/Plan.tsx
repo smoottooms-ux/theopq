@@ -4,7 +4,7 @@ import { useCloud } from '../../lib/useCloud';
 import { Bar, TopBar, useToast } from '../../components/ui';
 import { IconCheck } from '../../components/Icons';
 import { fetchPlans, startCheckout, type PlanOption } from '../../lib/cloud';
-import { SUPPORT_EMAIL } from '../../lib/config';
+import { HAS_PAYMENT_LINK, PRICE_LABEL, STRIPE_PAYMENT_LINK, SUPPORT_EMAIL } from '../../lib/config';
 
 /** Formats pence/cents in the currency the operator prices in. */
 function money(amount: number): string {
@@ -59,7 +59,7 @@ export default function PlanScreen() {
         <div className="card">
           <h3>Sign in first</h3>
           <p className="soft" style={{ marginTop: 6 }}>
-            Plans belong to your Nightshift account.
+            Plans belong to your Story Station account.
           </p>
           <button className="btn btn--block" style={{ marginTop: 12 }} onClick={() => navigate('/p/account')}>
             Sign in
@@ -197,7 +197,28 @@ export default function PlanScreen() {
         </>
       )}
 
-      {!checkoutAvailable && (
+      {!checkoutAvailable && HAS_PAYMENT_LINK && (
+        <div className="card">
+          <h3>Subscribe</h3>
+          <p className="soft" style={{ marginTop: 6 }}>
+            {PRICE_LABEL}. Cancel any time. Payment is handled by Stripe — we never see your card.
+          </p>
+          <a
+            className="btn btn--block btn--lg"
+            style={{ marginTop: 14 }}
+            href={STRIPE_PAYMENT_LINK}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Subscribe — {PRICE_LABEL}
+          </a>
+          <p className="muted" style={{ marginTop: 10 }}>
+            Use the same email you signed up with here, so we can match the payment to your account.
+          </p>
+        </div>
+      )}
+
+      {!checkoutAvailable && !HAS_PAYMENT_LINK && (
         <div className="card">
           <h3>Payments are not switched on yet</h3>
           <p className="soft" style={{ marginTop: 6 }}>

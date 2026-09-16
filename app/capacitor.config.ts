@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.opq.nightshift',
-  appName: 'Nightshift',
+  appId: 'com.opq.storystation',
+  appName: 'Story Station',
   webDir: 'dist',
   android: {
     // Content is bundled in the APK; https keeps the WebView origin secure so

@@ -1,13 +1,36 @@
-# Nightshift
+# Story Station
 
-**Bedtime stories read in your own voice — for the parents who aren't home at bedtime.**
+**Bedtime stories, lullabies and learning — read in your own voice, for the parents who aren't home at bedtime.**
 
 You're on nights. You're over the road. You're doing a double. Your kid still goes to bed at 7:30.
-Nightshift is how you're still the one who reads the story.
+Story Station is how you're still the one who reads the story.
 
 One app, two sides. You sign in as the grown-up, teach it your voice once, and send stories.
 Your child signs in on their own device and — at their bedtime, every night — gets a notification,
 opens an illustrated book, and hears **you** read it.
+
+---
+
+## The deal, in one paragraph
+
+Record **ten short songs** — most under a minute. That is the only recording you ever have to do.
+After that, every bedtime story, learning book and lullaby in the app reads itself **in your voice**,
+and auto-pilot sends one every night without you touching it. Your child opens the app at bedtime
+and watches the words light up as you read them.
+
+---
+
+## The four shelves
+
+| Shelf | What's on it |
+|---|---|
+| **Bedtime stories** | Six books written to slow a child down. One is about a lighthouse keeper who works nights on purpose. |
+| **Learning books** | Eight books that teach letters, counting, colours, opposites, feelings, days of the week, shapes and how slow things grow — hidden inside a bedtime story. |
+| **Songs** | Eight songs that teach: the alphabet, counting to twenty, body parts, animal sounds, days, colours. All traditional or written for this app — provenance recorded in the file. |
+| **Lullabies** | Ten public-domain lullabies, plus six synthesised sleep sounds and a fade-out timer. |
+
+Every one of them is a **read-along**: the words light up as the voice says them, like a finger
+moving under the line, and the pages turn themselves. Tap a word to jump there.
 
 ---
 
@@ -17,7 +40,9 @@ opens an illustrated book, and hears **you** read it.
 
 | | |
 |---|---|
-| **Voice Studio** | Read six short scripted passages. The app scores each take on-device (too quiet, clipping, dead air) and tells you how to fix it before anything is uploaded. Explicit typed consent is required before a single sample leaves the phone. |
+| **Recording studio** | Record the ten. **Hear it first** so you know how it goes, or **hear it in your headphones while you record** as a prompt. The words light up as you read. Each take is scored on-device (too quiet, clipping, dead air) with a plain-English fix. |
+| **Voice Studio** | Builds your voice from those recordings. Explicit typed consent is required before a single sample leaves the phone. |
+| **Auto-pilot** | On by default. Every night it picks something you haven't sent recently and queues it, preferring things you recorded yourself. Works with no signal. |
 | **Story Builder** | Pick the child, the topic, the tone, the length. Add a personal message that gets spoken in your voice before the story starts. Schedule it for bedtime or send it right now. |
 | **Heartfelt messages** | Seven templates for the things you actually need to say and aren't there to say: *I had to work tonight*, *I'm proud of you*, *I owe you an apology*, *Big day tomorrow*. The templates carry the shape; your own typed words carry the weight, and they're spoken exactly as you wrote them. |
 | **Read it yourself** | Skip the AI entirely. Record yourself reading the whole story in one take. Highest fidelity there is, costs nothing. |
@@ -34,7 +59,8 @@ opens an illustrated book, and hears **you** read it.
 | **Talk back** | One button, hold it, say anything. It lands in the parent's library. This is the feature parents cry about. |
 | **Lullabies** | Play on repeat, six synthesised sleep sounds, and a timer that fades everything out instead of cutting it. |
 | **Bookshelf** | Every story ever sent, grouped by week, kept forever, playable offline. |
-| **Twelve learning games** | Grouped into Reading, Numbers, Thinking and Talking. |
+| **Twelve learning games** | Grouped into Reading, Numbers, Thinking and Talking. For the nights they still have energy. |
+| **Read-along** | Words light up in time with the voice on every book and song. If the device has no reading voice installed, they still light up at reading pace so you can read it together. |
 
 ---
 
@@ -121,9 +147,13 @@ slots — per family, per period:
 | Plan | Price | Narration | Stories | Voices |
 |---|---|---|---|---|
 | Free trial | — | 20k chars (~5 stories) | 8 | 1 |
-| Family | £9.99/mo | 400k chars | 120 | 2 |
-| Family, yearly | £89.99/yr | 400k chars | 120 | 2 |
-| Lifetime | £249.99 | 400k chars/mo | 120 | 3 |
+| Family | £12.99/mo | 120k chars | 30 | 2 |
+| Family, yearly | £99/yr | 120k chars | 30 | 2 |
+| Lifetime | £249 | 120k chars/mo | 30 | 3 |
+
+**Replays are free and unlimited.** Only *creating* new narration is metered, and the recorded
+library is generated once per voice and then replayed forever. That is what makes the unit
+economics work — see `docs/PRICING.md`.
 
 Edit that file to change pricing or limits. Hitting a limit returns HTTP 402 and the app routes the
 parent to the plan screen instead of showing an error.
@@ -167,12 +197,12 @@ an API.
 The APK is built by GitHub Actions, because that's where the Android SDK lives.
 
 1. Push to any branch, or open the **Actions** tab → **Build Android APK** → **Run workflow**.
-2. When it finishes, download the `nightshift-apk-<n>` artifact from the run summary.
-3. Unzip, move `nightshift-debug-*.apk` to the phone, and open it. Android will ask you to allow
+2. When it finishes, download the `story-station-apk-<n>` artifact from the run summary.
+3. Unzip, move `story-station-debug-*.apk` to the phone, and open it. Android will ask you to allow
    installing from unknown sources — that's expected for a sideloaded APK.
 
 **For a signed release build** (needed for the Play Store), add four repository secrets and the
-workflow builds and signs `nightshift-release-*.apk` automatically:
+workflow builds and signs `story-station-release-*.apk` automatically:
 
 | Secret | What it is |
 |---|---|

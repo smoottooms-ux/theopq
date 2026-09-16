@@ -17,7 +17,7 @@ export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 mkdirSync(MEDIA_DIR, { recursive: true });
 mkdirSync(TEMP_DIR, { recursive: true });
 
-export const db = openDb({ file: join(DATA_DIR, 'nightshift.db') });
+export const db = openDb({ file: join(DATA_DIR, 'storystation.db') });
 installEntitlementSchema(db);
 
 db.exec(`

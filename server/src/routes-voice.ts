@@ -139,7 +139,7 @@ voiceRoutes.post('/voice/enroll', requireAuth('parent'), express.json(), async (
     voiceId,
     req.session!.familyId,
     req.session!.subjectId,
-    `Nightshift · ${parentName}`,
+    `Story Station · ${parentName}`,
     String(consentName).trim(),
     now,
     rows.length,
@@ -156,7 +156,7 @@ voiceRoutes.post('/voice/enroll', requireAuth('parent'), express.json(), async (
         buffer: readFileSync(join(TEMP_DIR, row.filename)),
         contentType: row.content_type,
       })),
-      `Nightshift · ${parentName}`,
+      `Story Station · ${parentName}`,
     );
 
     db.prepare(
@@ -173,7 +173,7 @@ voiceRoutes.post('/voice/enroll', requireAuth('parent'), express.json(), async (
       actorName: String(parentName),
       kind: 'voice_ready',
       subjectId: voiceId,
-      summary: `${parentName} taught Nightshift their voice`,
+      summary: `${parentName} taught Story Station their voice`,
     });
 
     cleanupSamples(rows);

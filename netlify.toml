@@ -1,4 +1,4 @@
-# Netlify build for the Nightshift web app.
+# Netlify build for the Story Station web app.
 #
 # The same bundle that becomes the Android APK also runs as an installable
 # web app, so a parent can open it on any phone without sideloading anything.

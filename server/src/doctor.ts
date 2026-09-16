@@ -228,7 +228,7 @@ function checkConfiguration(): void {
 }
 
 async function main(): Promise<void> {
-  console.log('\nNightshift server — pre-flight check');
+  console.log('\nStory Station server — pre-flight check');
   console.log(DIM + '─'.repeat(52) + RESET);
 
   checkConfiguration();
