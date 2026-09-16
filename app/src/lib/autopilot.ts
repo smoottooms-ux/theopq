@@ -1,4 +1,4 @@
-import type { AppData, Child, Parent, Story } from '../types';
+import type { AppData, Child, Parent, Story, VoiceRecording } from '../types';
 import { LIBRARY, type LibraryItem, type ShelfKind } from '../data/library';
 import { nextBedtime } from './delivery';
 import { id } from './ids';
@@ -67,8 +67,24 @@ export function pickForTonight(data: AppData, child: Child): LibraryItem | null 
   })[0];
 }
 
-/** Builds the story record for an auto-picked library item. */
-export function buildAutoStory(parent: Parent, child: Child, item: LibraryItem): Story {
+/**
+ * Builds the story record for an auto-picked library item.
+ *
+ * If the parent has already recorded this one, the recording is attached
+ * here — otherwise auto-pilot would hand a child the device narrator reading
+ * a song their own parent had sat down and sung, which is the opposite of
+ * what the app is for.
+ */
+export function buildAutoStory(
+  parent: Parent,
+  child: Child,
+  item: LibraryItem,
+  recordings: VoiceRecording[] = [],
+): Story {
+  const mine = recordings
+    .filter((r) => r.itemId === item.id && r.parentId === parent.id)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+
   return {
     id: id('story'),
     familyId: child.familyId,
@@ -84,7 +100,8 @@ export function buildAutoStory(parent: Parent, child: Child, item: LibraryItem):
     vocabulary: [],
     talkPrompts: [],
     libraryItemId: item.id,
-    voiceProvider: 'device',
+    audioKey: mine?.audioKey,
+    voiceProvider: mine ? 'recorded' : 'device',
     durationEstimate: item.duration,
     status: 'delivered',
     scheduledFor: nextBedtime(child),

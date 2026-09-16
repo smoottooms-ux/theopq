@@ -8,8 +8,8 @@ import { TopBar, Empty } from '../../components/ui';
 import { IconGear, IconMic, IconPlus, IconSpark } from '../../components/Icons';
 import { Coach } from '../../components/Coach';
 import { planTonight, buildAutoStory } from '../../lib/autopilot';
-import { voiceProgress, VOICE_TARGET } from '../../lib/playback';
-import type { Child, Story } from '../../types';
+import { storyVoice, voiceProgress, VOICE_TARGET } from '../../lib/playback';
+import type { Child, Story, VoiceProviderId } from '../../types';
 
 export default function ParentHome() {
   const navigate = useNavigate();
@@ -22,8 +22,10 @@ export default function ParentHome() {
   const pending = useMemo(() => planTonight(data, parent), [data, parent]);
   useEffect(() => {
     if (!parent || pending.length === 0) return;
-    for (const pick of pending) addStory(buildAutoStory(parent, pick.child, pick.item));
-  }, [parent, pending, addStory]);
+    for (const pick of pending) {
+      addStory(buildAutoStory(parent, pick.child, pick.item, data.recordings));
+    }
+  }, [parent, pending, addStory, data.recordings]);
 
   const voice = useMemo(
     () => data.voices.find((v) => v.parentId === parent?.id),
@@ -194,6 +196,10 @@ export default function ParentHome() {
               key={kid.id}
               child={kid}
               story={tonightFor(data.stories, kid)}
+              voiceProvider={(() => {
+                const s = tonightFor(data.stories, kid);
+                return s ? storyVoice(data, s).provider : undefined;
+              })()}
               onCreate={() => navigate(`/p/story?child=${kid.id}`)}
             />
           ))}
@@ -288,10 +294,13 @@ function tonightFor(stories: Story[], child: Child): Story | undefined {
 function TonightCard({
   child,
   story,
+  voiceProvider,
   onCreate,
 }: {
   child: Child;
   story?: Story;
+  /** Resolved centrally, so this card can never disagree with the player. */
+  voiceProvider?: VoiceProviderId;
   onCreate: () => void;
 }) {
   return (
@@ -315,7 +324,7 @@ function TonightCard({
         <div>
           <p style={{ fontFamily: 'var(--font-display)', fontSize: 17 }}>{story.title}</p>
           <p className="muted" style={{ marginTop: 4 }}>
-            {voiceDescription(story.voiceProvider, story.fromParentName)} ·{' '}
+            {voiceDescription(voiceProvider ?? story.voiceProvider, story.fromParentName)} ·{' '}
             {describeSchedule(story.scheduledFor)}
           </p>
           {story.status === 'played' && story.playCount > 1 && (

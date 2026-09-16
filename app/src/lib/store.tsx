@@ -361,16 +361,19 @@ export function useApp(): Ctx {
   return ctx;
 }
 
-/** Stories addressed to this child that are due and not yet played. */
+/**
+ * Stories waiting for this child.
+ *
+ * Deliberately NOT filtered by the scheduled time. Hiding a story until
+ * bedtime means a parent who records at 9pm, switches to their child's
+ * account to check it worked, and finds "nothing new yet" — which reads as
+ * the app being broken. The bedtime notification is what makes it an event;
+ * the book itself has no reason to be locked away, and a child who wants to
+ * read their own story at teatime should be allowed to.
+ */
 export function pendingStories(data: AppData, childId: string): Story[] {
-  const now = Date.now();
   return data.stories
-    .filter(
-      (s) =>
-        s.toChildId === childId &&
-        (s.status === 'ready' || s.status === 'delivered') &&
-        s.scheduledFor <= now,
-    )
+    .filter((s) => s.toChildId === childId && (s.status === 'ready' || s.status === 'delivered'))
     .sort((a, b) => b.scheduledFor - a.scheduledFor);
 }
 

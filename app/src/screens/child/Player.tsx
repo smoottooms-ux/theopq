@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { StoryArt } from '../../components/StoryArt';
+import { ReadAlongBook } from '../../components/ReadAlongBook';
+import { estimateScript, readAloud, type ReaderHandle } from '../../lib/readalong';
 import { Empty, TopBar, useToast } from '../../components/ui';
 import { IconBack, IconMic, IconPause, IconPlay, IconRefresh } from '../../components/Icons';
 import { audioUrl, releaseAudioUrl } from '../../lib/storage';
-import { deviceVoice } from '../../lib/voice/device';
 import { voiceDescription } from '../../lib/voice';
-import type { LiveHandle } from '../../lib/voice/types';
+import { storyVoice } from '../../lib/playback';
 import { useCloud } from '../../lib/useCloud';
 
 export default function Player() {
@@ -25,40 +25,56 @@ export default function Player() {
   const [url, setUrl] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const liveRef = useRef<LiveHandle | null>(null);
   const countedPlay = useRef(false);
 
-  /** Where each page starts, as a fraction of the whole narration. */
-  const pageOffsets = useMemo(() => {
-    if (!story) return [];
-    const counts = story.pages.map((p) => p.text.split(/\s+/).filter(Boolean).length);
-    const total = counts.reduce((a, b) => a + b, 0) || 1;
-    let running = 0;
-    return counts.map((c) => {
-      const start = running / total;
-      running += c;
-      return start;
-    });
+  const [currentTime, setCurrentTime] = useState(0);
+  const [activeWord, setActiveWord] = useState<number | undefined>(undefined);
+  const readerRef = useRef<ReaderHandle | null>(null);
+  const raf = useRef(0);
+
+  /** Word timings for the highlight. Paced by the recording when there is one. */
+  const script = useMemo(() => {
+    if (!story) return null;
+    return estimateScript(
+      story.pages.map((p) => p.text),
+      story.durationEstimate || 120,
+    );
   }, [story]);
 
+  /**
+   * The audio to play.
+   *
+   * A story queued by auto-pilot before its parent got round to recording it
+   * still points at nothing, so a library-backed story also looks for a
+   * recording of that item now. Otherwise a child hears the device narrator
+   * reading a song their own parent has since sat down and sung.
+   */
+  const resolved = useMemo(
+    () => (story ? storyVoice(data, story) : null),
+    [data, story],
+  );
+  const audioKey = resolved?.audioKey;
+  const spokenBy = resolved?.provider ?? 'device';
+
   useEffect(() => {
-    if (!story?.audioKey) return;
+    if (!audioKey) return setUrl(null);
     let cancelled = false;
-    void audioUrl(story.audioKey).then((u) => {
+    void audioUrl(audioKey).then((u) => {
       if (!cancelled) setUrl(u);
     });
-    const key = story.audioKey;
     return () => {
       cancelled = true;
-      releaseAudioUrl(key);
+      releaseAudioUrl(audioKey);
     };
-  }, [story?.audioKey]);
+  }, [audioKey]);
 
   const stopEverything = useCallback(() => {
+    cancelAnimationFrame(raf.current);
     audioRef.current?.pause();
-    liveRef.current?.stop();
-    liveRef.current = null;
+    readerRef.current?.stop();
+    readerRef.current = null;
     setPlaying(false);
+    setActiveWord(undefined);
   }, []);
 
   useEffect(() => () => stopEverything(), [stopEverything]);
@@ -84,14 +100,8 @@ export default function Player() {
       audio.preload = 'auto';
       audioRef.current = audio;
 
-      audio.ontimeupdate = () => {
-        if (!audio!.duration) return;
-        const progress = audio!.currentTime / audio!.duration;
-        // Follow the narration, but never fight a page the child turned by hand.
-        const next = pageOffsets.findLastIndex((offset) => progress >= offset);
-        if (next >= 0) setPage(next);
-      };
       audio.onended = () => {
+        cancelAnimationFrame(raf.current);
         setPlaying(false);
         setFinished(true);
         markPlayed();
@@ -101,40 +111,45 @@ export default function Player() {
         toast('That recording will not play. Try the read-aloud button.');
       };
     }
-    void audio.play().then(() => setPlaying(true)).catch(() => toast('Tap play once more.'));
-  }, [markPlayed, pageOffsets, toast, url]);
+
+    const follow = () => {
+      setCurrentTime(audio!.currentTime);
+      raf.current = requestAnimationFrame(follow);
+    };
+
+    void audio
+      .play()
+      .then(() => {
+        setPlaying(true);
+        follow();
+      })
+      .catch(() => toast('Tap play once more.'));
+  }, [markPlayed, toast, url]);
 
   /* ---------------- device narrator ---------------- */
 
-  const speakFrom = useCallback(
-    async (startPage: number) => {
-      if (!story) return;
-      setPlaying(true);
-      for (let i = startPage; i < story.pages.length; i++) {
-        setPage(i);
-        try {
-          const handle = await deviceVoice.speakLive!({
-            text: story.pages[i].text,
-            voice: { } as never,
-            settings: data.settings,
-            style: 'bedtime',
-          });
-          liveRef.current = handle;
-          await handle.done;
-        } catch {
-          setPlaying(false);
-          toast('This device cannot read out loud.');
-          return;
-        }
-        if (!liveRef.current) return; // stopped by the child
-        liveRef.current = null;
-      }
-      setPlaying(false);
-      setFinished(true);
-      markPlayed();
-    },
-    [data.settings, markPlayed, story, toast],
-  );
+  const speakFrom = useCallback(() => {
+    if (!story || !script) return;
+    setPlaying(true);
+
+    void readAloud({
+      script,
+      text: story.pages.map((p) => p.text).join('\n\n'),
+      onWord: (index) => {
+        setActiveWord(index);
+        const target = script.words[index]?.page;
+        if (typeof target === 'number') setPage(target);
+      },
+      onDone: () => {
+        setPlaying(false);
+        setFinished(true);
+        setActiveWord(undefined);
+        markPlayed();
+      },
+    }).then((handle) => {
+      readerRef.current = handle;
+    });
+  }, [markPlayed, script, story]);
 
   const toggle = () => {
     if (playing) {
@@ -143,7 +158,7 @@ export default function Player() {
     }
     setFinished(false);
     if (url) playFile();
-    else void speakFrom(page);
+    else speakFrom();
   };
 
   const restart = () => {
@@ -164,7 +179,6 @@ export default function Player() {
     );
   }
 
-  const current = story.pages[page];
   const isLast = page === story.pages.length - 1;
   // Dialogic reading: the grown-up's question arrives on the page it belongs to.
   const talkHere = story.talkPrompts?.find((prompt) => prompt.afterPage === page);
@@ -183,19 +197,23 @@ export default function Player() {
       </div>
 
       <div style={{ padding: '0 16px' }}>
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <StoryArt art={current.art} seed={story.id} />
-          <p
-            style={{
-              padding: '20px 18px',
-              fontFamily: 'var(--font-display)',
-              fontSize: 21,
-              lineHeight: 1.65,
-            }}
-          >
-            {current.text}
-          </p>
-        </div>
+        <ReadAlongBook
+          script={script!}
+          seed={story.id}
+          arts={story.pages.map((p) => p.art)}
+          currentTime={url ? currentTime : undefined}
+          activeWord={url ? undefined : activeWord}
+          page={page}
+          onPageChange={setPage}
+          onSeekToPage={
+            audioRef.current
+              ? (seconds) => {
+                  if (audioRef.current) audioRef.current.currentTime = seconds;
+                }
+              : undefined
+          }
+          playing={playing}
+        />
 
         {talkHere && (
           <div
@@ -278,7 +296,7 @@ export default function Player() {
         </div>
 
         <p className="muted" style={{ textAlign: 'center', marginTop: 12 }}>
-          {voiceDescription(story.voiceProvider, story.fromParentName)}
+          {voiceDescription(spokenBy, story.fromParentName)}
         </p>
 
         {(finished || isLast) && (

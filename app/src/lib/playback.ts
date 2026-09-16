@@ -1,4 +1,4 @@
-import type { AppData, VoiceRecording } from '../types';
+import type { AppData, Story, VoiceProviderId, VoiceRecording } from '../types';
 import type { LibraryItem } from '../data/library';
 
 /**
@@ -61,4 +61,28 @@ export function voiceProgress(data: AppData, parentId?: string): VoiceProgress {
     usable,
     remaining: Math.max(0, VOICE_TARGET - mine.length),
   };
+}
+
+/**
+ * Whose voice a specific story actually plays in, right now.
+ *
+ * A story queued by auto-pilot before its parent recorded that item is stored
+ * as 'device', but a recording made afterwards should win — and the card on
+ * the home screen has to say the same thing the player says, or the app looks
+ * like it is lying about the one thing it is selling.
+ */
+export function storyVoice(
+  data: AppData,
+  story: Story,
+): { provider: VoiceProviderId; audioKey?: string } {
+  if (story.audioKey) return { provider: story.voiceProvider, audioKey: story.audioKey };
+
+  if (story.libraryItemId) {
+    const recording = data.recordings
+      .filter((r) => r.itemId === story.libraryItemId)
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (recording) return { provider: 'recorded', audioKey: recording.audioKey };
+  }
+
+  return { provider: story.voiceProvider };
 }

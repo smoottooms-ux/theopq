@@ -7,6 +7,8 @@ import { IconGame, IconPlay } from '../../components/Icons';
 import { StoryArt } from '../../components/StoryArt';
 import { streak } from '../../lib/srs';
 import { voiceDescription } from '../../lib/voice';
+import { storyVoice } from '../../lib/playback';
+import { describeSchedule } from '../../lib/delivery';
 
 export default function ChildHome() {
   const navigate = useNavigate();
@@ -70,10 +72,14 @@ export default function ChildHome() {
             </div>
           </div>
           <div style={{ padding: '18px 16px 16px' }}>
-            <span className="badge badge--accent">Tonight's story</span>
+            <span className="badge badge--accent">
+              {tonight.scheduledFor > Date.now()
+                ? `Ready ${describeSchedule(tonight.scheduledFor)}`
+                : "Tonight's story"}
+            </span>
             <h2 style={{ margin: '10px 0 6px', paddingRight: 70 }}>{tonight.title}</h2>
             <p className="muted">
-              {voiceDescription(tonight.voiceProvider, tonight.fromParentName)}
+              {voiceDescription(storyVoice(data, tonight).provider, tonight.fromParentName)}
             </p>
           </div>
         </button>
