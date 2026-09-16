@@ -9,6 +9,11 @@ import { review } from '../../lib/srs';
 import type { SkillCard } from '../../types';
 import { deviceVoice } from '../../lib/voice/device';
 import { id } from '../../lib/ids';
+import { useCloud } from '../../lib/useCloud';
+import { Recorder, formatDuration, micSupported } from '../../lib/audio';
+import { audioStore } from '../../lib/storage';
+import { LevelMeter } from '../../components/ui';
+import { IconMic } from '../../components/Icons';
 
 /** Quality for the scheduler: fast and right earns a longer gap than slow and right. */
 function quality(correct: boolean, ms: number): number {
@@ -130,6 +135,25 @@ export default function GameRunner() {
   if (done) {
     const total = round.questions.length;
     const pct = Math.round((correctCount / total) * 100);
+    const openEnded = round.questions.every((question) => question.openEnded);
+
+    if (openEnded) {
+      return (
+        <div className="screen" style={{ display: 'grid', placeItems: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 68 }} aria-hidden>💬</div>
+            <h1 style={{ marginTop: 10 }}>All sent</h1>
+            <p className="soft" style={{ margin: '10px auto 26px', maxWidth: 300 }}>
+              {story?.fromParentName ?? 'Your grown-up'} will hear every answer. Talking about a
+              story out loud is one of the best things you can do for your reading.
+            </p>
+            <button className="btn btn--lg" onClick={() => navigate('/c/games')}>
+              Back to games
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="screen" style={{ display: 'grid', placeItems: 'center' }}>
         <div style={{ textAlign: 'center' }}>
@@ -193,6 +217,20 @@ export default function GameRunner() {
         />
       </div>
 
+      {q.rule && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 12,
+            textAlign: 'center',
+            background: 'color-mix(in srgb, var(--accent) 16%, var(--surface))',
+            borderColor: 'var(--accent)',
+          }}
+        >
+          <p style={{ fontWeight: 600 }}>{q.rule}</p>
+        </div>
+      )}
+
       <div className="card" style={{ textAlign: 'center', padding: '26px 18px' }}>
         {q.visual && (
           <div style={{ fontSize: q.visual.length > 4 ? 30 : 60, marginBottom: 12 }} aria-hidden>
@@ -237,7 +275,39 @@ export default function GameRunner() {
         <NumberLineAnswer question={q} answered={answered} picked={picked} onPick={grade} />
       )}
 
-      {answered && (
+      {q.kind === 'sort' && (
+        <SortAnswer question={q} answered={answered} picked={picked} onPick={grade} />
+      )}
+
+      {q.kind === 'gonogo' && (
+        <GoNoGo
+          question={q}
+          answered={answered}
+          onDone={(hitRate) => grade(hitRate >= 0.75 ? 'complete' : 'missed')}
+        />
+      )}
+
+      {q.kind === 'speak' && (
+        <SpeakAnswer
+          question={q}
+          answered={answered}
+          storyId={story?.id}
+          onDone={grade}
+        />
+      )}
+
+      {answered && q.openEnded && (
+        <div className="card" style={{ marginTop: 18, borderColor: 'var(--good)', textAlign: 'center' }}>
+          <div style={{ color: 'var(--good)' }}>
+            <IconCheck size={28} />
+          </div>
+          <p className="soft" style={{ marginTop: 6 }}>
+            Sent to {story?.fromParentName ?? 'your grown-up'}. There is no wrong answer to this one.
+          </p>
+        </div>
+      )}
+
+      {answered && !q.openEnded && (
         <div
           className="card"
           style={{
@@ -417,6 +487,279 @@ function NumberLineAnswer({
       </div>
       <p className="muted" style={{ textAlign: 'center' }}>
         Find the answer on the line and tap it.
+      </p>
+    </div>
+  );
+}
+
+/* ---------------- Sort It Twice ---------------- */
+
+function SortAnswer({
+  question,
+  answered,
+  picked,
+  onPick,
+}: {
+  question: Question;
+  answered: boolean;
+  picked: string | null;
+  onPick: (value: string) => void;
+}) {
+  const [left, right] = question.bins ?? ['A', 'B'];
+
+  return (
+    <div className="row" style={{ marginTop: 18, gap: 12, alignItems: 'stretch' }}>
+      {[left, right].map((bin) => {
+        const isAnswer = answered && bin === question.answer;
+        const isWrong = answered && picked === bin && bin !== question.answer;
+        return (
+          <button
+            key={bin}
+            className="card"
+            disabled={answered}
+            onClick={() => onPick(bin)}
+            style={{
+              flex: 1,
+              marginTop: 0,
+              minHeight: 130,
+              cursor: answered ? 'default' : 'pointer',
+              borderColor: isAnswer ? 'var(--good)' : isWrong ? 'var(--bad)' : 'var(--line)',
+              background: isAnswer
+                ? 'color-mix(in srgb, var(--good) 16%, var(--surface))'
+                : isWrong
+                  ? 'color-mix(in srgb, var(--bad) 16%, var(--surface))'
+                  : undefined,
+              display: 'grid',
+              placeItems: 'center',
+            }}
+          >
+            <span style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>{bin}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------------- Freeze! ---------------- */
+
+/**
+ * A go/no-go stream.
+ *
+ * Each stimulus gets a fixed window. Tapping a "go" item scores a hit; NOT
+ * tapping a "no-go" item scores too — withholding is the skill being trained,
+ * so it has to be worth as much as responding.
+ */
+function GoNoGo({
+  question,
+  answered,
+  onDone,
+}: {
+  question: Question;
+  answered: boolean;
+  onDone: (hitRate: number) => void;
+}) {
+  const stimuli = question.stimuli ?? [];
+  const [index, setIndex] = useState(-1);
+  const [flash, setFlash] = useState<'hit' | 'miss' | null>(null);
+  const [score, setScore] = useState({ correct: 0, total: 0 });
+  const tapped = useRef(false);
+  const finished = useRef(false);
+
+  const WINDOW_MS = 1500;
+
+  useEffect(() => {
+    if (answered || finished.current) return;
+
+    if (index >= stimuli.length - 1 && index >= 0) {
+      finished.current = true;
+      const rate = score.total ? score.correct / score.total : 0;
+      window.setTimeout(() => onDone(rate), 600);
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => {
+        // Grade the item that just elapsed before moving on.
+        if (index >= 0) {
+          const item = stimuli[index];
+          const right = item.go ? tapped.current : !tapped.current;
+          setScore((s) => ({ correct: s.correct + (right ? 1 : 0), total: s.total + 1 }));
+          if (!right) setFlash('miss');
+        }
+        tapped.current = false;
+        setFlash(null);
+        setIndex((i) => i + 1);
+      },
+      index < 0 ? 900 : WINDOW_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [index, answered, stimuli, score, onDone]);
+
+  const current = index >= 0 ? stimuli[index] : null;
+
+  const tap = () => {
+    if (tapped.current || !current) return;
+    tapped.current = true;
+    const right = current.go;
+    setFlash(right ? 'hit' : 'miss');
+    void Haptics.impact({ style: right ? ImpactStyle.Light : ImpactStyle.Heavy }).catch(
+      () => undefined,
+    );
+  };
+
+  return (
+    <div className="stack" style={{ marginTop: 18 }}>
+      <button
+        onClick={tap}
+        disabled={!current || answered}
+        aria-label="Tap"
+        style={{
+          width: '100%',
+          minHeight: 240,
+          borderRadius: 'var(--radius-lg)',
+          border: '2px solid',
+          borderColor:
+            flash === 'hit' ? 'var(--good)' : flash === 'miss' ? 'var(--bad)' : 'var(--line)',
+          background:
+            flash === 'hit'
+              ? 'color-mix(in srgb, var(--good) 18%, var(--surface))'
+              : flash === 'miss'
+                ? 'color-mix(in srgb, var(--bad) 18%, var(--surface))'
+                : 'var(--surface)',
+          cursor: 'pointer',
+          display: 'grid',
+          placeItems: 'center',
+          transition: 'background 0.12s ease, border-color 0.12s ease',
+        }}
+      >
+        <span style={{ fontSize: 96 }} aria-hidden>
+          {current ? current.emoji : index < 0 ? '👀' : '✅'}
+        </span>
+      </button>
+
+      <div className="row">
+        <span className="badge">
+          {Math.max(0, index + 1)} of {stimuli.length}
+        </span>
+        <span className="spacer" />
+        <span className="badge badge--good">{score.correct} right</span>
+      </div>
+
+      <p className="muted" style={{ textAlign: 'center' }}>
+        {index < 0 ? 'Get ready…' : 'Tap the ones that count. Sit on your hands for the rest.'}
+      </p>
+    </div>
+  );
+}
+
+/* ---------------- Story Talk ---------------- */
+
+/**
+ * The child answers a dialogic-reading prompt out loud and it goes to the
+ * parent. No marking, no score — the answer is the point.
+ */
+function SpeakAnswer({
+  question,
+  answered,
+  storyId,
+  onDone,
+}: {
+  question: Question;
+  answered: boolean;
+  storyId?: string;
+  onDone: (value: string) => void;
+}) {
+  const { child, addReply } = useApp();
+  const { pushReply, connected, journal } = useCloud();
+
+  const [recording, setRecording] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const recorder = useRef<Recorder | null>(null);
+  const tick = useRef<ReturnType<typeof setInterval>>(undefined);
+
+  useEffect(() => () => {
+    recorder.current?.cancel();
+    clearInterval(tick.current);
+  }, []);
+
+  const start = async () => {
+    if (!micSupported()) return onDone('skipped');
+    try {
+      const rec = new Recorder();
+      rec.onLevel = setLevel;
+      await rec.start();
+      recorder.current = rec;
+      setRecording(true);
+      setElapsed(0);
+      tick.current = setInterval(() => {
+        setElapsed(rec.elapsed);
+        if (rec.elapsed > 45) void stop();
+      }, 200);
+    } catch {
+      onDone('skipped');
+    }
+  };
+
+  const stop = async () => {
+    clearInterval(tick.current);
+    const result = await recorder.current?.stop();
+    recorder.current = null;
+    setRecording(false);
+    setLevel(0);
+    if (!result || !child) return onDone('skipped');
+
+    const audioKey = await audioStore.put(id('aud'), result.blob);
+    const reply = {
+      id: id('reply'),
+      storyId: storyId ?? '',
+      childId: child.id,
+      childName: child.name,
+      audioKey,
+      duration: result.duration,
+      createdAt: Date.now(),
+    };
+    addReply(reply);
+    if (connected) {
+      await pushReply(reply, result.blob);
+      await journal({
+        kind: 'talk_answered',
+        summary: `${child.name} answered: "${question.prompt}"`,
+        subjectId: storyId,
+        actorName: child.name,
+      });
+    }
+    onDone('answered');
+  };
+
+  if (answered) return null;
+
+  return (
+    <div className="stack" style={{ marginTop: 18 }}>
+      {recording ? (
+        <div className="card" style={{ marginTop: 0, textAlign: 'center' }}>
+          <LevelMeter level={level} />
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 30, margin: '12px 0' }}>
+            {formatDuration(elapsed)}
+          </div>
+          <button className="btn btn--danger btn--block btn--lg" onClick={stop}>
+            I'm done
+          </button>
+        </div>
+      ) : (
+        <>
+          <button className="btn btn--block btn--lg" onClick={start}>
+            <IconMic size={20} /> Say my answer
+          </button>
+          <button className="btn btn--ghost btn--block btn--sm" onClick={() => onDone('skipped')}>
+            Skip this one
+          </button>
+        </>
+      )}
+      <p className="muted" style={{ textAlign: 'center' }}>
+        There is no right answer. Whatever you say goes straight to your grown-up.
       </p>
     </div>
   );

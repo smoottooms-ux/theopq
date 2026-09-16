@@ -7,7 +7,6 @@ import { StoryArt } from '../../components/StoryArt';
 import { TOPIC_LIST } from '../../lib/story/packs';
 import { HEARTFELT, type HeartfeltId } from '../../lib/story/heartfelt';
 import { generateStory } from '../../lib/story/generate';
-import { llmAvailable } from '../../lib/story/llm-available';
 import { composeStory, deliver, describeSchedule, nextBedtime } from '../../lib/delivery';
 import { Recorder, formatDuration, micSupported, playBlob } from '../../lib/audio';
 import { scheduleNightly } from '../../lib/notifications';
@@ -20,7 +19,7 @@ export default function StoryBuilder() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const { data, parent, addStory } = useApp();
-  const { pushStory, connected } = useCloud();
+  const { cloud, connected } = useCloud();
   const toast = useToast();
 
   const voice = data.voices.find((v) => v.parentId === parent?.id);
@@ -135,6 +134,7 @@ export default function StoryBuilder() {
         child,
         voice: narration === 'voice' ? voice : undefined,
         settings: data.settings,
+        cloud,
         brief: {
           topic,
           tone,
@@ -149,8 +149,6 @@ export default function StoryBuilder() {
 
       const delivered = await deliver(story, child);
       addStory(delivered);
-      // Push before navigating so the child's device can pick it up tonight.
-      if (connected) await pushStory(delivered);
       await scheduleNightly(child, parent.name).catch(() => undefined);
 
       if (delivered.failureReason) {
@@ -160,7 +158,13 @@ export default function StoryBuilder() {
       }
       navigate('/p/library');
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not send that.');
+      // Out of quota is a decision to put in front of the parent, not an error.
+      if ((err as Error & { upgrade?: boolean }).upgrade) {
+        toast(err instanceof Error ? err.message : 'You have used this period\'s allowance.');
+        navigate('/p/plan');
+      } else {
+        toast(err instanceof Error ? err.message : 'Could not send that.');
+      }
     } finally {
       setStage(null);
     }
@@ -363,10 +367,10 @@ export default function StoryBuilder() {
         ]}
       />
 
-      {!llmAvailable(data.settings) && !heartfelt && (
+      {!connected && (
         <p className="muted" style={{ marginTop: 14 }}>
-          Stories are being written by the built-in story engine. Add an Anthropic key in Settings
-          for stories written fresh around {child?.name ?? 'your child'}'s own interests.
+          You are offline. The story will be written on this device and read by the phone — sign in
+          to send it in your own voice.
         </p>
       )}
 

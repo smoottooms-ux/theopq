@@ -1,18 +1,30 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { join, resolve } from 'node:path';
-import { openDb } from './db.js';
+import { join } from 'node:path';
 import {
   checkRateLimit,
   clearRateLimit,
   createSession,
   hashPin,
   purgeExpiredSessions,
-  readSession,
   verifyPin,
-  type Session,
 } from './auth.js';
+import {
+  DATA_DIR,
+  MAX_AUDIO_BYTES,
+  MEDIA_DIR,
+  db,
+  extensionFor,
+  id,
+  logActivity,
+  requireAuth,
+  streamMedia,
+} from './context.js';
+import { describeEntitlement, grantTrial } from './entitlements.js';
+import { voiceRoutes } from './routes-voice.js';
+import { contentRoutes } from './routes-content.js';
+import { billingRoutes } from './routes-billing.js';
 
 /**
  * Nightshift sync server.
@@ -24,57 +36,34 @@ import {
  */
 
 const PORT = Number(process.env.PORT ?? 8787);
-const DATA_DIR = resolve(process.env.DATA_DIR ?? './data');
-const MEDIA_DIR = join(DATA_DIR, 'media');
-/** Audio uploads are capped: a long story in MP3 is well under this. */
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
-mkdirSync(MEDIA_DIR, { recursive: true });
-
-const db = openDb({ file: join(DATA_DIR, 'nightshift.db') });
 setInterval(() => purgeExpiredSessions(db), 60 * 60_000).unref();
 
 const app = express();
 app.disable('x-powered-by');
-app.use(express.json({ limit: '2mb' }));
 
+// CORS first: everything below it, including billing, is called from a browser.
 app.use((_req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN ?? '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Admin-Token');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   next();
 });
 app.options(/.*/, (_req, res) => res.sendStatus(204));
 
-const id = (prefix: string) =>
-  `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
+// Stripe signs the exact bytes it sends, so the webhook must see a raw body.
+// It is mounted before the JSON parser for that reason.
+app.use('/', billingRoutes);
+app.use(express.json({ limit: '2mb' }));
 
 function joinCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
 }
 
-/* ---------------- auth middleware ---------------- */
-
-declare module 'express-serve-static-core' {
-  interface Request {
-    session?: Session;
-  }
-}
-
-function requireAuth(role?: 'parent' | 'child') {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const session = readSession(db, req);
-    if (!session) return res.status(401).json({ error: 'Not signed in.' });
-    if (role && session.role !== role) return res.status(403).json({ error: 'Wrong account type.' });
-    req.session = session;
-    next();
-  };
-}
-
 /* ---------------- health ---------------- */
 
-app.get('/health', (_req, res) => res.json({ ok: true, version: 1 }));
+app.get('/health', (_req, res) => res.json({ ok: true, version: 2 }));
 
 /* ---------------- accounts ---------------- */
 
@@ -106,11 +95,14 @@ app.post('/auth/signup', (req, res) => {
     ).run(parentId, familyId, String(name).trim(), normalised, hash, salt, now);
   })();
 
+  grantTrial(db, familyId);
+
   const session = createSession(db, familyId, parentId, 'parent');
   res.status(201).json({
     token: session.token,
     parent: { id: parentId, familyId, name: String(name).trim(), email: normalised },
     family: db.prepare(`SELECT * FROM families WHERE id = ?`).get(familyId),
+    entitlement: describeEntitlement(db, familyId),
   });
 });
 
@@ -138,6 +130,7 @@ app.post('/auth/login', (req, res) => {
     token: session.token,
     parent: { id: row.id, familyId: row.family_id, name: row.name, email: row.email },
     family: db.prepare(`SELECT * FROM families WHERE id = ?`).get(row.family_id),
+    entitlement: describeEntitlement(db, row.family_id),
   });
 });
 
@@ -253,6 +246,13 @@ app.post('/children', requireAuth('parent'), (req, res) => {
   );
 
   const row = db.prepare(`SELECT * FROM children WHERE id = ?`).get(childId) as ChildRow;
+  logActivity({
+    familyId: req.session!.familyId,
+    actorId: req.session!.subjectId,
+    kind: 'child_added',
+    subjectId: childId,
+    summary: `${row.name} joined the family`,
+  });
   res.status(201).json(rowToChild(row));
 });
 
@@ -390,6 +390,24 @@ app.post('/stories/:id/played', requireAuth('child'), (req, res) => {
     )
     .run(Date.now(), req.params.id, req.session!.subjectId);
   if (!result.changes) return res.status(404).json({ error: 'No such story.' });
+
+  const story = db
+    .prepare(`SELECT payload FROM stories WHERE id = ?`)
+    .get(req.params.id) as { payload: string } | undefined;
+  const child = db
+    .prepare(`SELECT name FROM children WHERE id = ?`)
+    .get(req.session!.subjectId) as { name: string } | undefined;
+
+  logActivity({
+    familyId: req.session!.familyId,
+    actorId: req.session!.subjectId,
+    actorName: child?.name,
+    kind: 'story_played',
+    subjectId: String(req.params.id),
+    summary: `${child?.name ?? 'Your child'} listened to "${
+      story ? (JSON.parse(story.payload) as { title?: string }).title : 'a story'
+    }"`,
+  });
   res.sendStatus(204);
 });
 
@@ -445,6 +463,15 @@ app.post(
       Date.now(),
     );
 
+    logActivity({
+      familyId: req.session!.familyId,
+      actorId: req.session!.subjectId,
+      actorName: child?.name,
+      kind: 'reply_sent',
+      subjectId: replyId,
+      summary: `${child?.name ?? 'Your child'} recorded a message back`,
+    });
+
     res.status(201).json({ id: replyId });
   },
 );
@@ -495,35 +522,8 @@ app.post('/replies/:id/heard', requireAuth('parent'), (req, res) => {
 
 /* ---------------- helpers ---------------- */
 
-function extensionFor(contentType: string): string {
-  if (contentType.includes('mpeg')) return 'mp3';
-  if (contentType.includes('mp4')) return 'm4a';
-  if (contentType.includes('ogg')) return 'ogg';
-  if (contentType.includes('wav')) return 'wav';
-  return 'webm';
-}
-
-function contentTypeFor(filename: string): string {
-  if (filename.endsWith('.mp3')) return 'audio/mpeg';
-  if (filename.endsWith('.m4a')) return 'audio/mp4';
-  if (filename.endsWith('.ogg')) return 'audio/ogg';
-  if (filename.endsWith('.wav')) return 'audio/wav';
-  return 'audio/webm';
-}
-
-function streamMedia(res: Response, filename: string): void {
-  // Filenames are server-generated, but the join is still guarded so a crafted
-  // row can never escape the media directory.
-  const path = join(MEDIA_DIR, filename);
-  if (!path.startsWith(MEDIA_DIR) || !existsSync(path)) {
-    res.status(404).json({ error: 'File missing.' });
-    return;
-  }
-  res.setHeader('Content-Type', contentTypeFor(filename));
-  res.setHeader('Content-Length', statSync(path).size);
-  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-  createReadStream(path).pipe(res);
-}
+app.use('/', voiceRoutes);
+app.use('/', contentRoutes);
 
 app.use((err: Error & { type?: string }, _req: Request, res: Response, _next: NextFunction) => {
   if (err.type === 'entity.too.large') {

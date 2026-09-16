@@ -1,6 +1,5 @@
 import { Capacitor } from '@capacitor/core';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
-import type { Settings } from '../../types';
 import type { LiveHandle, SynthInput, VoiceProvider } from './types';
 
 /**
@@ -100,5 +99,5 @@ export const recordedVoice: VoiceProvider = {
   clonesVoice: true,
 
   ready: () => true,
-  blockedReason: (_s: Settings) => null,
+  blockedReason: () => null,
 };

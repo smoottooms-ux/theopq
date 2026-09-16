@@ -1,25 +1,16 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
+import { useCloud } from '../../lib/useCloud';
 import { Field, TopBar, useToast } from '../../components/ui';
 import { requestPermission, scheduleNightly } from '../../lib/notifications';
 import { audioStore } from '../../lib/storage';
+import { HAS_HOSTED_BACKEND, SUPPORT_EMAIL } from '../../lib/config';
 
 export default function SettingsScreen() {
   const navigate = useNavigate();
   const { data, parent, setSettings, signOut, update } = useApp();
+  const { account, connected } = useCloud();
   const toast = useToast();
-
-  const [elevenKey, setElevenKey] = useState(data.settings.elevenLabsKey ?? '');
-  const [anthropicKey, setAnthropicKey] = useState(data.settings.anthropicKey ?? '');
-
-  const saveKeys = () => {
-    setSettings({
-      elevenLabsKey: elevenKey.trim() || undefined,
-      anthropicKey: anthropicKey.trim() || undefined,
-    });
-    toast('Keys saved on this device.');
-  };
 
   const toggleNotifications = async () => {
     const next = !data.settings.notificationsEnabled;
@@ -38,55 +29,39 @@ export default function SettingsScreen() {
     await Promise.all(keys.map((k) => audioStore.remove(String(k))));
     update((d) => {
       d.stories = [];
+      d.lullabies = [];
       d.replies = [];
       d.sessions = [];
       d.cards = [];
+      d.journal = [];
     });
-    toast('Stories, replies and progress cleared.');
+    toast('Local copies cleared. Anything synced is still in your account.');
   };
 
   return (
     <div className="screen">
       <TopBar title="Settings" onBack={() => navigate('/p')} />
 
-      <div className="section-label">Voice cloning</div>
-      <div className="card stack">
-        <Field
-          label="ElevenLabs API key"
-          hint="Required for cloning. Stored on this device only and sent only to elevenlabs.io."
-        >
-          <input
-            className="input"
-            type="password"
-            value={elevenKey}
-            onChange={(e) => setElevenKey(e.target.value)}
-            placeholder="sk_…"
-            autoComplete="off"
-          />
-        </Field>
-        <p className="muted">
-          Voice cloning needs a paid ElevenLabs plan. Without a key the app still works — stories
-          are read by the device narrator, or by you, recorded live.
-        </p>
-      </div>
-
-      <div className="section-label">Story writing</div>
-      <div className="card stack">
-        <Field
-          label="Anthropic API key (optional)"
-          hint="Turns on stories written fresh for each child instead of the built-in engine."
-        >
-          <input
-            className="input"
-            type="password"
-            value={anthropicKey}
-            onChange={(e) => setAnthropicKey(e.target.value)}
-            placeholder="sk-ant-…"
-            autoComplete="off"
-          />
-        </Field>
-        <button className="btn btn--block" onClick={saveKeys}>Save keys</button>
-      </div>
+      <div className="section-label">Your account</div>
+      <button
+        className="card"
+        onClick={() => navigate(connected ? '/p/plan' : '/p/account')}
+        style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
+      >
+        <div className="row">
+          <div className="avatar" aria-hidden>{connected ? '✅' : '☁️'}</div>
+          <div style={{ flex: 1 }}>
+            <h3>{account?.entitlement.planLabel ?? (connected ? 'Your plan' : 'Sign in')}</h3>
+            <p className="muted">
+              {account
+                ? `${account.entitlement.stories.limit - account.entitlement.stories.used} stories left this period`
+                : connected
+                  ? 'Tap to see your plan'
+                  : 'Sign in to send stories to another device'}
+            </p>
+          </div>
+        </div>
+      </button>
 
       <div className="section-label">Nightly routine</div>
       <div className="card stack">
@@ -114,41 +89,55 @@ export default function SettingsScreen() {
         </Field>
       </div>
 
-      <div className="section-label">Across devices</div>
-      <button
-        className="card"
-        onClick={() => navigate('/p/sync')}
-        style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
-      >
-        <div className="row">
-          <div className="avatar" aria-hidden>🔗</div>
-          <div style={{ flex: 1 }}>
-            <h3>Sync</h3>
-            <p className="muted">
-              {data.settings.serverUrl
-                ? data.settings.serverUrl
-                : "Off — stories only reach a child on this same device."}
-            </p>
+      {!HAS_HOSTED_BACKEND && (
+        <>
+          <div className="section-label">Self-hosted</div>
+          <div className="card stack">
+            <Field
+              label="Server address"
+              hint="This build has no server baked in, so point it at your own."
+            >
+              <input
+                className="input"
+                value={data.settings.serverUrl ?? ''}
+                onChange={(e) => setSettings({ serverUrl: e.target.value.trim() || undefined })}
+                placeholder="https://…"
+                autoCapitalize="none"
+                autoCorrect="off"
+                inputMode="url"
+              />
+            </Field>
           </div>
-        </div>
-      </button>
+        </>
+      )}
 
-      <div className="section-label">Account</div>
+      <div className="section-label">This device</div>
       <div className="card stack">
         <p className="soft">
           Signed in as <strong>{parent?.name}</strong> ({parent?.email})
         </p>
-        <button className="btn btn--soft btn--block" onClick={() => void signOut().then(() => navigate('/welcome'))}>
+        <button
+          className="btn btn--soft btn--block"
+          onClick={() => void signOut().then(() => navigate('/welcome'))}
+        >
           Sign out
         </button>
         <button className="btn btn--ghost btn--block btn--sm" onClick={wipe}>
-          Clear all stories and progress
+          Clear downloaded copies
         </button>
       </div>
 
+      <div className="section-label">Help</div>
+      <div className="card">
+        <p className="soft">
+          Something wrong? Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> and tell us
+          what happened.
+        </p>
+      </div>
+
       <p className="muted" style={{ textAlign: 'center', marginTop: 20 }}>
-        Nightshift keeps everything on this device by default. Nothing is uploaded except the audio
-        you explicitly send to your cloning provider.
+        Your voice recordings are used to build your narration voice and nothing else. We never sell
+        them, never train on them, and delete them the moment you remove your voice.
       </p>
     </div>
   );

@@ -1,4 +1,4 @@
-import type { GameSession, SkillCard, SkillId } from '../types';
+import type { GameSession, SkillArea, SkillCard, SkillId } from '../types';
 
 /**
  * Spaced repetition, SM-2 flavoured.
@@ -119,11 +119,57 @@ export interface SkillSummary {
 }
 
 const SKILL_LABELS: Record<SkillId, string> = {
-  phonics: 'Sounding out words',
+  blending: 'Hearing sounds in words',
+  manipulation: 'Changing sounds in words',
+  phonics: 'Building words',
+  rhyme: 'Rhyming',
   sightWords: 'Sight words',
   numberSense: 'Number sense',
   comprehension: 'Understanding stories',
   patterns: 'Patterns & logic',
+  focus: 'Stopping and thinking',
+  flexibility: 'Switching rules',
+  talk: 'Talking about stories',
+};
+
+/**
+ * Which area each skill belongs to.
+ *
+ * Blending and manipulation sit at the top of the reading list on purpose:
+ * of everything measured here they are the strongest predictors of whether a
+ * child will read well later.
+ */
+export const SKILL_AREAS: Record<SkillId, SkillArea> = {
+  blending: 'reading',
+  manipulation: 'reading',
+  phonics: 'reading',
+  rhyme: 'reading',
+  sightWords: 'reading',
+  comprehension: 'reading',
+  numberSense: 'numbers',
+  patterns: 'thinking',
+  focus: 'thinking',
+  flexibility: 'thinking',
+  talk: 'talking',
+};
+
+export const AREA_LABELS: Record<SkillArea, { label: string; blurb: string; emoji: string }> = {
+  reading: {
+    label: 'Reading',
+    blurb: 'Hearing sounds inside words is the single best predictor of reading well later.',
+    emoji: '📖',
+  },
+  numbers: { label: 'Numbers', blurb: 'Counting, adding and knowing how big a number feels.', emoji: '🔢' },
+  thinking: {
+    label: 'Thinking',
+    blurb: 'Stopping, switching and holding a rule in mind — this is what school readiness actually is.',
+    emoji: '🧠',
+  },
+  talking: {
+    label: 'Talking',
+    blurb: 'Answering real questions about a story out loud builds the language reading depends on.',
+    emoji: '💬',
+  },
 };
 
 /** A card is "mastered" once it survives to a week-long interval. */

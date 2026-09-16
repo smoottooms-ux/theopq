@@ -9,9 +9,11 @@ export const emptyData = (): AppData => ({
   children: [],
   voices: [],
   stories: [],
+  lullabies: [],
   replies: [],
   cards: [],
   sessions: [],
+  journal: [],
   settings: {
     dailyGameMinutes: 30,
     storyBeforeGames: false,

@@ -5,8 +5,13 @@ import { Field, LevelMeter, Sheet, TopBar, useToast } from '../../components/ui'
 import { IconCheck, IconMic, IconPlay, IconRefresh, IconTrash, IconX } from '../../components/Icons';
 import { Recorder, formatDuration, micSupported, playBlob, type RecordingResult } from '../../lib/audio';
 import { ENROLL_PROMPTS, MIN_SAMPLES } from '../../lib/voice/prompts';
-import { elevenLabs } from '../../lib/voice/elevenlabs';
-import { audioStore } from '../../lib/storage';
+import { useCloud } from '../../lib/useCloud';
+import {
+  deleteManagedVoice,
+  enrollVoice,
+  previewVoice,
+  uploadVoiceSample,
+} from '../../lib/cloud';
 import { id } from '../../lib/ids';
 import type { VoiceProfile } from '../../types';
 
@@ -15,6 +20,7 @@ type Take = { promptId: string; blob: Blob; result: RecordingResult };
 export default function VoiceStudio() {
   const navigate = useNavigate();
   const { data, parent, upsertVoice } = useApp();
+  const { cloud, account, refreshAccount } = useCloud();
   const toast = useToast();
 
   const existing = data.voices.find((v) => v.parentId === parent?.id);
@@ -28,6 +34,7 @@ export default function VoiceStudio() {
   const [consentChecked, setConsentChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
 
   const recorder = useRef<Recorder | null>(null);
   const tick = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -92,12 +99,15 @@ export default function VoiceStudio() {
     if (!consentChecked || consentName.trim().toLowerCase() !== parent.name.trim().toLowerCase()) {
       return toast(`Type "${parent.name}" exactly to confirm it is your voice.`);
     }
+    if (!cloud) {
+      return toast('Sign in to your Nightshift account first — voice building happens there.');
+    }
 
     setSubmitting(true);
     const profile: VoiceProfile = {
       id: existing?.id ?? id('voice'),
       parentId: parent.id,
-      provider: 'elevenlabs',
+      provider: 'managed',
       status: 'processing',
       samples: usable.map((t) => ({
         id: id('smp'),
@@ -114,38 +124,46 @@ export default function VoiceStudio() {
     setConsentOpen(false);
 
     try {
-      const { providerVoiceId } = await elevenLabs.enroll!({
-        samples: usable.map((t) => t.blob),
-        parentName: parent.name,
-        settings: data.settings,
+      // Upload take by take, so a dropped connection costs one recording
+      // rather than the whole session.
+      const sampleIds: string[] = [];
+      for (const [index, take] of usable.entries()) {
+        setStage(`Sending recording ${index + 1} of ${usable.length}…`);
+        sampleIds.push(await uploadVoiceSample(cloud, take.promptId, take.blob));
+      }
+
+      setStage('Building your voice…');
+      const built = await enrollVoice(cloud, sampleIds, parent.name, consentName.trim());
+
+      upsertVoice({
+        ...profile,
+        status: built.status,
+        failureReason: built.failureReason,
+        updatedAt: built.updatedAt,
       });
-      upsertVoice({ ...profile, providerVoiceId, status: 'ready', updatedAt: Date.now() });
-      // Keep the takes locally so the voice can be rebuilt without re-recording.
-      await Promise.all(usable.map((t) => audioStore.put(`sample:${profile.id}:${t.promptId}`, t.blob)));
+      await refreshAccount();
       setTakes([]);
       toast('Your voice is ready. Go make a story.');
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Enrollment failed.';
       upsertVoice({ ...profile, status: 'failed', failureReason: reason, updatedAt: Date.now() });
-      toast(reason);
+      if ((err as Error & { upgrade?: boolean }).upgrade) navigate('/p/plan');
+      else toast(reason);
     } finally {
+      setStage(null);
       setSubmitting(false);
     }
   };
 
   const testVoice = async () => {
-    if (!existing || existing.status !== 'ready') return;
+    if (!existing || existing.status !== 'ready' || !cloud) return;
     setTesting(true);
     try {
-      const blob = await elevenLabs.synthesizeFile!({
-        text: `Goodnight. It's ${parent.name}. Sleep well, I love you.`,
-        voice: existing,
-        settings: data.settings,
-        style: 'bedtime',
-      });
+      const blob = await previewVoice(cloud, `Goodnight. It's ${parent.name}. Sleep well, I love you.`);
       await playBlob(blob).done;
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not play a test.');
+      if ((err as Error & { upgrade?: boolean }).upgrade) navigate('/p/plan');
+      else toast(err instanceof Error ? err.message : 'Could not play a test.');
     } finally {
       setTesting(false);
     }
@@ -153,8 +171,9 @@ export default function VoiceStudio() {
 
   const removeVoice = async () => {
     if (!existing) return;
-    await elevenLabs.deleteVoice?.(existing, data.settings);
+    if (cloud) await deleteManagedVoice(cloud).catch(() => undefined);
     upsertVoice({ ...existing, status: 'none', providerVoiceId: undefined, updatedAt: Date.now() });
+    await refreshAccount();
     toast('Voice deleted.');
   };
 
@@ -207,7 +226,13 @@ export default function VoiceStudio() {
 
   /* ------------------------- enrollment ------------------------- */
 
-  const blocked = elevenLabs.blockedReason(data.settings);
+  const blocked = !cloud
+    ? 'Sign in to your Nightshift account to build your voice.'
+    : account && !account.capabilities.voiceCloning
+      ? 'Voice building is temporarily unavailable. Your recordings are safe on this device.'
+      : account?.entitlement.status === 'expired'
+        ? 'Your free trial has ended.'
+        : null;
 
   return (
     <div className="screen">
@@ -219,17 +244,17 @@ export default function VoiceStudio() {
 
       {blocked && (
         <div className="card" style={{ borderColor: 'var(--warn)' }}>
-          <h3>Set up cloning first</h3>
+          <h3>One step first</h3>
           <p className="soft" style={{ marginTop: 6 }}>{blocked}</p>
           <button
             className="btn btn--soft btn--block btn--sm"
             style={{ marginTop: 12 }}
-            onClick={() => navigate('/p/settings')}
+            onClick={() => navigate(cloud ? '/p/plan' : '/p/account')}
           >
-            Open Settings
+            {cloud ? 'See plans' : 'Sign in'}
           </button>
           <p className="muted" style={{ marginTop: 10 }}>
-            You can still record your takes now — they are saved on this device until a key is added.
+            Record your takes now anyway — they stay on this device until you are ready.
           </p>
         </div>
       )}
@@ -357,7 +382,7 @@ export default function VoiceStudio() {
       <button
         className="btn btn--block btn--lg"
         style={{ marginTop: 14 }}
-        disabled={usable.length < MIN_SAMPLES || !!activePrompt}
+        disabled={usable.length < MIN_SAMPLES || !!activePrompt || !!blocked}
         onClick={() => {
           setConsentName('');
           setConsentChecked(false);
@@ -383,8 +408,8 @@ export default function VoiceStudio() {
             />
             <span className="soft">
               This is <strong>my own voice</strong>. I am not cloning anyone else. I understand the
-              recordings are sent to ElevenLabs to build the model, and that I can delete it at any
-              time.
+              recordings are sent to Nightshift to build the model, that they are deleted once it is
+              built, and that I can remove the voice at any time.
             </span>
           </label>
 
@@ -398,7 +423,7 @@ export default function VoiceStudio() {
           </Field>
 
           <button className="btn btn--block btn--lg" onClick={submit} disabled={submitting}>
-            {submitting ? 'Building…' : 'I agree — build it'}
+            {stage ?? (submitting ? 'Building…' : 'I agree — build it')}
           </button>
         </div>
       </Sheet>

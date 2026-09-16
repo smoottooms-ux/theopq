@@ -166,6 +166,8 @@ export default function Player() {
 
   const current = story.pages[page];
   const isLast = page === story.pages.length - 1;
+  // Dialogic reading: the grown-up's question arrives on the page it belongs to.
+  const talkHere = story.talkPrompts?.find((prompt) => prompt.afterPage === page);
 
   return (
     <div className="screen screen--flush">
@@ -194,6 +196,39 @@ export default function Player() {
             {current.text}
           </p>
         </div>
+
+        {talkHere && (
+          <div
+            className="card"
+            style={{
+              marginTop: 12,
+              borderColor: 'var(--accent)',
+              background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
+            }}
+          >
+            <div className="row" style={{ alignItems: 'flex-start' }}>
+              <div className="avatar" aria-hidden>💬</div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 17, lineHeight: 1.5 }}>
+                  {talkHere.prompt}
+                </p>
+                <p className="muted" style={{ marginTop: 4 }}>
+                  {story.fromParentName} asked this. Say your answer out loud.
+                </p>
+              </div>
+            </div>
+            <button
+              className="btn btn--soft btn--block btn--sm"
+              style={{ marginTop: 12 }}
+              onClick={() => {
+                stopEverything();
+                navigate(`/c/games/story-talk?story=${story.id}`);
+              }}
+            >
+              Answer {story.fromParentName}
+            </button>
+          </div>
+        )}
 
         <div className="row" style={{ marginTop: 14, justifyContent: 'center', gap: 6 }}>
           {story.pages.map((_, i) => (
@@ -254,6 +289,15 @@ export default function Player() {
             >
               <IconMic size={20} /> Say something back to {story.fromParentName}
             </button>
+
+            {(story.talkPrompts?.length ?? 0) > 0 && (
+              <button
+                className="btn btn--soft btn--block"
+                onClick={() => navigate(`/c/games/story-talk?story=${story.id}`)}
+              >
+                💬 Story Talk — answer {story.fromParentName}'s questions
+              </button>
+            )}
 
             {story.comprehension.length > 0 && (
               <button

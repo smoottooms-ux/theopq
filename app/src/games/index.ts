@@ -1,10 +1,16 @@
 import type { AppData, Child, SkillCard, SkillId, Story } from '../types';
 import { buildRound } from '../lib/srs';
 import {
+  BLENDING_WORDS,
+  GO_NO_GO_ROUNDS,
+  MANIPULATION_ITEMS,
+  OPPOSITE_ITEMS,
   PATTERNS,
   PHONICS_WORDS,
+  RHYME_SETS,
   SIGHT_DISTRACTORS,
   SIGHT_WORDS,
+  SORT_CARDS,
   makeDistractors,
 } from '../data/words';
 
@@ -17,7 +23,7 @@ import {
  * points for noise, no loot boxes.
  */
 
-export type QuestionKind = 'choice' | 'build' | 'numberline';
+export type QuestionKind = 'choice' | 'build' | 'numberline' | 'gonogo' | 'sort' | 'speak';
 
 export interface Question {
   /** Spaced-repetition key for this specific item. */
@@ -37,6 +43,14 @@ export interface Question {
   range?: [number, number];
   /** Shown after a wrong answer. Teaching, not scolding. */
   explain?: string;
+  /** A rule banner kept on screen — used where holding the rule IS the task. */
+  rule?: string;
+  /** For 'gonogo': the stream of stimuli and whether each should be tapped. */
+  stimuli?: { emoji: string; go: boolean }[];
+  /** For 'sort': the two bins and which one is correct under the current rule. */
+  bins?: [string, string];
+  /** For 'speak': nothing is graded; the answer goes to the parent. */
+  openEnded?: boolean;
 }
 
 export interface GameDef {
@@ -249,7 +263,268 @@ const patternLogic: GameDef = {
   },
 };
 
-export const GAMES: GameDef[] = [wordBuilder, sightWords, numberLine, storyRecall, patternLogic];
+/* ---------------- Sound Detective (phoneme blending) ---------------- */
+
+/**
+ * The child hears a word broken into sounds and says what it is.
+ *
+ * Blending and segmenting phonemes predict later reading better than anything
+ * else measured here, which is why this game sits at the top of the list.
+ */
+const soundDetective: GameDef = {
+  id: 'sound-detective',
+  title: 'Sound Detective',
+  emoji: '🕵️',
+  blurb: 'Hear the sounds. Work out the word.',
+  skill: 'blending',
+  size: 8,
+  build({ child, data }) {
+    const pool = BLENDING_WORDS.filter((w) => w.level <= child.gameDifficulty);
+    const { items, cards } = buildRound(pool, data.cards, 'blending', soundDetective.size);
+
+    const questions = items.map((item): Question => {
+      const wrong = shuffle(
+        BLENDING_WORDS.filter((w) => w.word !== item.word).map((w) => w.word),
+      ).slice(0, 2);
+      return {
+        key: item.key,
+        kind: 'choice',
+        prompt: 'What word is this?',
+        // Spoken with gaps so the sounds stay separate.
+        speak: item.sounds.join(' ... '),
+        visual: item.sounds.join(' · '),
+        answer: item.word,
+        choices: shuffle([item.word, ...wrong]),
+        explain: `${item.sounds.join(' ')} makes "${item.word}".`,
+      };
+    });
+
+    return { questions, cards };
+  },
+};
+
+/* ---------------- Sound Swap (phoneme manipulation) ---------------- */
+
+/**
+ * Deleting or changing a sound inside a word — the hardest phonological skill
+ * in this app, and the one most tightly linked to decoding.
+ */
+const soundSwap: GameDef = {
+  id: 'sound-swap',
+  title: 'Sound Swap',
+  emoji: '🔄',
+  blurb: 'Take a sound out. What word is left?',
+  skill: 'manipulation',
+  size: 8,
+  build({ child, data }) {
+    const pool = MANIPULATION_ITEMS.filter((i) => i.level <= child.gameDifficulty);
+    const { items, cards } = buildRound(pool, data.cards, 'manipulation', soundSwap.size);
+
+    const questions = items.map((item): Question => ({
+      key: item.key,
+      kind: 'choice',
+      prompt: item.instruction,
+      speak: item.instruction.replace(/\//g, ''),
+      answer: item.answer,
+      choices: shuffle([item.answer, ...item.distractors]),
+      explain: `It leaves "${item.answer}".`,
+    }));
+
+    return { questions, cards };
+  },
+};
+
+/* ---------------- Rhyme Time ---------------- */
+
+const rhymeTime: GameDef = {
+  id: 'rhyme-time',
+  title: 'Rhyme Time',
+  emoji: '🎶',
+  blurb: 'Find the word that sounds the same at the end.',
+  skill: 'rhyme',
+  size: 8,
+  build({ child, data }) {
+    const pool = RHYME_SETS.filter((r) => r.level <= child.gameDifficulty);
+    const { items, cards } = buildRound(pool, data.cards, 'rhyme', rhymeTime.size);
+
+    const questions = items.map((item): Question => ({
+      key: item.key,
+      kind: 'choice',
+      prompt: `Which word rhymes with "${item.word}"?`,
+      visual: item.emoji,
+      speak: item.word,
+      answer: item.rhyme,
+      choices: shuffle([item.rhyme, ...item.others]),
+      explain: `"${item.word}" and "${item.rhyme}" end the same way.`,
+    }));
+
+    return { questions, cards };
+  },
+};
+
+/* ---------------- Freeze! (inhibitory control) ---------------- */
+
+/**
+ * Go/No-Go. The child taps everything in one category and must hold still for
+ * the exception. Inhibitory control of this kind predicts school readiness and
+ * feeds into early maths and letter knowledge, so it is worth its own game.
+ */
+const freeze: GameDef = {
+  id: 'freeze',
+  title: 'Freeze!',
+  emoji: '✋',
+  blurb: 'Tap fast — but stop yourself on the odd one out.',
+  skill: 'focus',
+  size: 3,
+  build({ child, data }) {
+    const pool = GO_NO_GO_ROUNDS.filter((r) => r.level <= child.gameDifficulty);
+    const { items, cards } = buildRound(pool, data.cards, 'focus', Math.min(pool.length, 3));
+
+    const questions = items.map((item): Question => ({
+      key: item.key,
+      kind: 'gonogo',
+      prompt: item.rule,
+      rule: item.rule,
+      stimuli: item.stimuli,
+      answer: 'complete',
+      explain: 'Slow down on the ones you are not meant to tap. Stopping is the skill.',
+    }));
+
+    return { questions, cards };
+  },
+};
+
+/* ---------------- Opposite Day (conflict) ---------------- */
+
+/** A day/night Stroop task: the obvious answer is always the wrong one. */
+const oppositeDay: GameDef = {
+  id: 'opposite-day',
+  title: 'Opposite Day',
+  emoji: '🙃',
+  blurb: 'Say the opposite of what you see. Harder than it sounds.',
+  skill: 'focus',
+  size: 10,
+  build({ child, data }) {
+    const pool = OPPOSITE_ITEMS.filter((i) => i.level <= child.gameDifficulty);
+    const { items, cards } = buildRound(pool, data.cards, 'focus', oppositeDay.size);
+
+    const questions = items.map((item): Question => ({
+      key: item.key,
+      kind: 'choice',
+      prompt: 'Pick the OPPOSITE',
+      rule: 'Everything means its opposite today.',
+      visual: item.show,
+      answer: item.answer,
+      choices: item.options,
+      explain: `The opposite is "${item.answer}".`,
+    }));
+
+    return { questions, cards };
+  },
+};
+
+/* ---------------- Sort It Twice (cognitive flexibility) ---------------- */
+
+/**
+ * A card sort where the rule flips halfway through. Switching an established
+ * rule is the standard measure of cognitive flexibility in young children,
+ * and it is genuinely hard — the mid-round switch is the whole point.
+ */
+const sortItTwice: GameDef = {
+  id: 'sort-it-twice',
+  title: 'Sort It Twice',
+  emoji: '🗂️',
+  blurb: 'Sort by colour. Then the rule changes.',
+  skill: 'flexibility',
+  size: 10,
+  build({ child, data }) {
+    const { items, cards } = buildRound(
+      SORT_CARDS,
+      data.cards,
+      'flexibility',
+      Math.min(sortItTwice.size, SORT_CARDS.length),
+    );
+
+    const half = Math.ceil(items.length / 2);
+    // Easier settings get a longer run on the first rule before the switch.
+    const switchAt = child.gameDifficulty === 1 ? Math.max(half, items.length - 3) : half;
+
+    const questions = items.map((item, i): Question => {
+      const byColour = i < switchAt;
+      return {
+        key: `${item.key}:${byColour ? 'colour' : 'shape'}`,
+        kind: 'sort',
+        prompt: byColour ? 'Sort by COLOUR' : 'Now sort by SHAPE',
+        rule: byColour ? 'Colour game' : 'Shape game — the rule changed!',
+        visual: item.emoji,
+        bins: byColour ? ['Red', 'Not red'] : ['Round', 'Pointy'],
+        answer: byColour
+          ? item.colour === 'red'
+            ? 'Red'
+            : 'Not red'
+          : item.shape === 'round'
+            ? 'Round'
+            : 'Pointy',
+        explain: byColour
+          ? 'Look at the colour, not the shape.'
+          : 'The rule changed — shape now, not colour.',
+      };
+    });
+
+    return { questions, cards };
+  },
+};
+
+/* ---------------- Story Talk (dialogic reading) ---------------- */
+
+/**
+ * The flagship, and the one with the deepest evidence behind it.
+ *
+ * Shared reading builds language most when the grown-up asks open questions
+ * and the child answers out loud. The parent cannot be there to ask, so the
+ * story asks in their voice and the child's answer is recorded and sent back
+ * to them. Nothing is graded — being asked and answering is the intervention.
+ */
+const storyTalk: GameDef = {
+  id: 'story-talk',
+  title: 'Story Talk',
+  emoji: '💬',
+  blurb: "Questions from tonight's story. Say your answer out loud.",
+  skill: 'talk',
+  size: 4,
+  build({ story }) {
+    const prompts = story?.talkPrompts ?? [];
+    if (!story || prompts.length === 0) return { questions: [], cards: [] };
+
+    const questions = prompts.slice(0, storyTalk.size).map(
+      (prompt, i): Question => ({
+        key: `talk:${story.id}:${i}`,
+        kind: 'speak',
+        prompt: prompt.prompt,
+        speak: prompt.prompt,
+        answer: '',
+        openEnded: true,
+      }),
+    );
+
+    return { questions, cards: [] };
+  },
+};
+
+export const GAMES: GameDef[] = [
+  soundDetective,
+  soundSwap,
+  rhymeTime,
+  wordBuilder,
+  sightWords,
+  numberLine,
+  patternLogic,
+  freeze,
+  oppositeDay,
+  sortItTwice,
+  storyRecall,
+  storyTalk,
+];
 
 export function gameById(id: string): GameDef | undefined {
   return GAMES.find((g) => g.id === id);

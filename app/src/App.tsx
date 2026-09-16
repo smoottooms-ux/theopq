@@ -16,8 +16,8 @@ import {
   IconChart,
   IconGame,
   IconHome,
-  IconMic,
   IconMoon,
+  IconMusic,
   IconSpark,
   IconUsers,
 } from './components/Icons';
@@ -35,7 +35,10 @@ import ParentLibrary from './screens/parent/Library';
 import FamilyScreen from './screens/parent/Family';
 import ProgressScreen from './screens/parent/Progress';
 import SettingsScreen from './screens/parent/Settings';
-import SyncScreen from './screens/parent/Sync';
+import AccountScreen from './screens/parent/Account';
+import PlanScreen from './screens/parent/Plan';
+import LullabiesScreen from './screens/parent/Lullabies';
+import JournalScreen from './screens/parent/Journal';
 
 import ChildHome from './screens/child/Home';
 import Player from './screens/child/Player';
@@ -43,6 +46,7 @@ import Bookshelf from './screens/child/Bookshelf';
 import GamesHub from './screens/child/GamesHub';
 import GameRunner from './screens/child/GameRunner';
 import ReplyRecorder from './screens/child/ReplyRecorder';
+import LullabyPlayer from './screens/child/LullabyPlayer';
 
 export default function App() {
   const { session, loading } = useApp();
@@ -103,7 +107,10 @@ export default function App() {
         <Route path="/p/family" element={<RequireRole role="parent"><FamilyScreen /></RequireRole>} />
         <Route path="/p/progress" element={<RequireRole role="parent"><ProgressScreen /></RequireRole>} />
         <Route path="/p/settings" element={<RequireRole role="parent"><SettingsScreen /></RequireRole>} />
-        <Route path="/p/sync" element={<RequireRole role="parent"><SyncScreen /></RequireRole>} />
+        <Route path="/p/account" element={<RequireRole role="parent"><AccountScreen /></RequireRole>} />
+        <Route path="/p/plan" element={<RequireRole role="parent"><PlanScreen /></RequireRole>} />
+        <Route path="/p/lullabies" element={<RequireRole role="parent"><LullabiesScreen /></RequireRole>} />
+        <Route path="/p/journal" element={<RequireRole role="parent"><JournalScreen /></RequireRole>} />
 
         <Route path="/c" element={<RequireRole role="child"><ChildHome /></RequireRole>} />
         <Route path="/c/story/:storyId" element={<RequireRole role="child"><Player /></RequireRole>} />
@@ -111,6 +118,7 @@ export default function App() {
         <Route path="/c/games" element={<RequireRole role="child"><GamesHub /></RequireRole>} />
         <Route path="/c/games/:gameId" element={<RequireRole role="child"><GameRunner /></RequireRole>} />
         <Route path="/c/reply/:storyId" element={<RequireRole role="child"><ReplyRecorder /></RequireRole>} />
+        <Route path="/c/lullabies" element={<RequireRole role="child"><LullabyPlayer /></RequireRole>} />
 
         <Route path="*" element={<RootRedirect />} />
       </Routes>
@@ -139,7 +147,7 @@ function ParentTabs() {
     <nav className="tabbar" aria-label="Main">
       <Tab to="/p" icon={<IconHome />} label="Tonight" end />
       <Tab to="/p/story" icon={<IconSpark />} label="Create" />
-      <Tab to="/p/voice" icon={<IconMic />} label="Voice" />
+      <Tab to="/p/lullabies" icon={<IconMoon />} label="Lullaby" />
       <Tab to="/p/family" icon={<IconUsers />} label="Family" />
       <Tab to="/p/progress" icon={<IconChart />} label="Progress" />
     </nav>
@@ -151,6 +159,7 @@ function ChildTabs() {
     <nav className="tabbar" aria-label="Main">
       <Tab to="/c" icon={<IconMoon />} label="Tonight" end />
       <Tab to="/c/books" icon={<IconBook />} label="Books" />
+      <Tab to="/c/lullabies" icon={<IconMusic />} label="Lullaby" />
       <Tab to="/c/games" icon={<IconGame />} label="Play" />
     </nav>
   );

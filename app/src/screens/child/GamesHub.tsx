@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { pendingStories, useApp } from '../../lib/store';
 import { Bar, TopBar } from '../../components/ui';
 import { GAMES } from '../../games';
-import { minutesToday, summarise } from '../../lib/srs';
+import { AREA_LABELS, SKILL_AREAS, minutesToday, summarise } from '../../lib/srs';
+import type { SkillArea } from '../../types';
 
 export default function GamesHub() {
   const navigate = useNavigate();
@@ -55,50 +56,64 @@ export default function GamesHub() {
         </div>
       )}
 
-      <div className="section-label">Games</div>
-      <div className="stack">
-        {GAMES.map((game) => {
-          const needsStory = game.id === 'story-recall';
-          const disabled =
-            storyLocked || outOfTime || (needsStory && !tonight?.comprehension.length);
+      {(Object.keys(AREA_LABELS) as SkillArea[]).map((area) => {
+        const games = GAMES.filter((game) => SKILL_AREAS[game.skill] === area);
+        if (games.length === 0) return null;
 
-          return (
-            <button
-              key={game.id}
-              className="card"
-              disabled={disabled}
-              onClick={() =>
-                navigate(
-                  needsStory && tonight
-                    ? `/c/games/${game.id}?story=${tonight.id}`
-                    : `/c/games/${game.id}`,
-                )
-              }
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                cursor: disabled ? 'not-allowed' : 'pointer',
-                opacity: disabled ? 0.45 : 1,
-                marginTop: 0,
-              }}
-            >
-              <div className="row">
-                <div className="avatar avatar--lg" aria-hidden style={{ fontSize: 32 }}>
-                  {game.emoji}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <h3>{game.title}</h3>
-                  <p className="muted">
-                    {needsStory && !tonight?.comprehension.length
-                      ? 'Listen to a story first, then come back.'
-                      : game.blurb}
-                  </p>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+        return (
+          <div key={area}>
+            <div className="section-label">
+              {AREA_LABELS[area].emoji} {AREA_LABELS[area].label}
+            </div>
+            <div className="stack">
+              {games.map((game) => {
+                const needsStory = game.id === 'story-recall' || game.id === 'story-talk';
+                const storyReady =
+                  game.id === 'story-talk'
+                    ? !!tonight?.talkPrompts?.length
+                    : !!tonight?.comprehension.length;
+                const disabled = storyLocked || outOfTime || (needsStory && !storyReady);
+
+                return (
+                  <button
+                    key={game.id}
+                    className="card"
+                    disabled={disabled}
+                    onClick={() =>
+                      navigate(
+                        needsStory && tonight
+                          ? `/c/games/${game.id}?story=${tonight.id}`
+                          : `/c/games/${game.id}`,
+                      )
+                    }
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      opacity: disabled ? 0.45 : 1,
+                      marginTop: 0,
+                    }}
+                  >
+                    <div className="row">
+                      <div className="avatar avatar--lg" aria-hidden style={{ fontSize: 32 }}>
+                        {game.emoji}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <h3>{game.title}</h3>
+                        <p className="muted">
+                          {needsStory && !storyReady
+                            ? 'Listen to a story first, then come back.'
+                            : game.blurb}
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
 
       <div className="section-label">What you're getting good at</div>
       <div className="card stack">

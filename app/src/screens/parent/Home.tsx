@@ -11,7 +11,7 @@ import type { Child, Story } from '../../types';
 export default function ParentHome() {
   const navigate = useNavigate();
   const { data, parent } = useApp();
-  useCloud({ autoSync: true });
+  const { account, connected } = useCloud({ autoSync: true });
 
   const voice = useMemo(
     () => data.voices.find((v) => v.parentId === parent?.id),
@@ -19,6 +19,8 @@ export default function ParentHome() {
   );
 
   const unheardReplies = data.replies.filter((r) => !r.heardAt);
+  const trialTrouble =
+    account && (account.entitlement.status !== 'active' || account.entitlement.plan === 'trial');
 
   return (
     <div className="screen">
@@ -32,7 +34,56 @@ export default function ParentHome() {
         }
       />
 
-      {voice?.status !== 'ready' && (
+      {!connected && (
+        <button
+          className="card"
+          onClick={() => navigate('/p/account')}
+          style={{ width: '100%', textAlign: 'left', cursor: 'pointer' }}
+        >
+          <div className="row">
+            <div className="avatar" aria-hidden>☁️</div>
+            <div style={{ flex: 1 }}>
+              <h3>Finish setting up</h3>
+              <p className="muted">
+                Sign in so your stories reach their device — and so your voice can be built.
+              </p>
+            </div>
+          </div>
+        </button>
+      )}
+
+      {trialTrouble && (
+        <button
+          className="card"
+          onClick={() => navigate('/p/plan')}
+          style={{
+            width: '100%',
+            textAlign: 'left',
+            cursor: 'pointer',
+            borderColor: account!.entitlement.status === 'active' ? 'var(--line)' : 'var(--warn)',
+          }}
+        >
+          <div className="row">
+            <div className="avatar" aria-hidden>
+              {account!.entitlement.status === 'active' ? '🎁' : '⚠️'}
+            </div>
+            <div style={{ flex: 1 }}>
+              <h3>
+                {account!.entitlement.status === 'active'
+                  ? `${account!.entitlement.stories.limit - account!.entitlement.stories.used} trial stories left`
+                  : 'Your trial has ended'}
+              </h3>
+              <p className="muted">
+                {account!.entitlement.status === 'active'
+                  ? 'Pick a plan whenever you are ready — nothing stops tonight.'
+                  : 'Pick a plan to keep sending stories.'}
+              </p>
+            </div>
+          </div>
+        </button>
+      )}
+
+      {connected && voice?.status !== 'ready' && (
         <button
           className="card"
           onClick={() => navigate('/p/voice')}
@@ -106,7 +157,57 @@ export default function ParentHome() {
       >
         <IconSpark size={20} /> Make tonight's story
       </button>
+
+      <div className="section-label">Also here</div>
+      <div className="stack">
+        <QuickLink
+          emoji="🎵"
+          title="Lullabies"
+          body="Short, soft, on repeat. With sleep sounds and a fade-out timer."
+          onClick={() => navigate('/p/lullabies')}
+        />
+        <QuickLink
+          emoji="📔"
+          title="Archive"
+          body="Every night, week by week, kept forever."
+          onClick={() => navigate('/p/journal')}
+        />
+        <QuickLink
+          emoji="📚"
+          title="Everything you've sent"
+          body="Play it back, see what they listened to twice."
+          onClick={() => navigate('/p/library')}
+        />
+      </div>
     </div>
+  );
+}
+
+function QuickLink({
+  emoji,
+  title,
+  body,
+  onClick,
+}: {
+  emoji: string;
+  title: string;
+  body: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="card"
+      onClick={onClick}
+      style={{ width: '100%', textAlign: 'left', cursor: 'pointer', marginTop: 0 }}
+    >
+      <div className="row">
+        <div className="avatar" aria-hidden>{emoji}</div>
+        <div style={{ flex: 1 }}>
+          <h3>{title}</h3>
+          <p className="muted">{body}</p>
+        </div>
+      </div>
+    </button>
   );
 }
 

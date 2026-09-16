@@ -67,7 +67,13 @@ export interface VoiceProfile {
   updatedAt: number;
 }
 
-export type VoiceProviderId = 'elevenlabs' | 'device' | 'recorded';
+/**
+ * Where narration comes from.
+ *  - 'managed'  the family's cloned voice, synthesised by our server
+ *  - 'recorded' the parent read it aloud themselves
+ *  - 'device'   the phone's built-in reader, which is nobody's real voice
+ */
+export type VoiceProviderId = 'managed' | 'device' | 'recorded';
 
 export type StoryTopic =
   | 'adventure'
@@ -88,6 +94,20 @@ export interface StoryPage {
   text: string;
   /** Deterministic seed used to draw the page's illustration. */
   art: string;
+}
+
+/**
+ * A dialogic-reading prompt, spoken mid-story in the parent's voice.
+ *
+ * Shared reading works best when the grown-up asks questions rather than just
+ * narrating, so the player pauses and asks — and the child answers out loud.
+ * The CROWD kinds come from the standard dialogic reading framework.
+ */
+export interface TalkPrompt {
+  /** 0-based page index this is asked after. */
+  afterPage: number;
+  prompt: string;
+  kind: 'completion' | 'recall' | 'open' | 'wh' | 'distancing';
 }
 
 export interface ComprehensionQuestion {
@@ -116,6 +136,8 @@ export interface Story {
   comprehension: ComprehensionQuestion[];
   /** Vocabulary the story deliberately teaches. */
   vocabulary: { word: string; meaning: string }[];
+  /** Questions the parent's voice asks mid-story. */
+  talkPrompts?: TalkPrompt[];
   voiceProfileId?: string;
   voiceProvider: VoiceProviderId;
   /** Key into the local audio blob store. */
@@ -130,6 +152,22 @@ export interface Story {
   failureReason?: string;
 }
 
+export interface LullabyDelivery {
+  id: string;
+  familyId: string;
+  fromParentId: string;
+  fromParentName: string;
+  toChildId: string;
+  lullabyId: string;
+  title: string;
+  verses: string[];
+  audioKey?: string;
+  voiceProvider: VoiceProviderId;
+  createdAt: number;
+  playCount: number;
+  lastPlayedAt?: number;
+}
+
 export interface ChildReply {
   id: string;
   storyId: string;
@@ -141,7 +179,21 @@ export interface ChildReply {
   heardAt?: number;
 }
 
-export type SkillId = 'phonics' | 'sightWords' | 'numberSense' | 'comprehension' | 'patterns';
+export type SkillId =
+  | 'phonics'
+  | 'blending'
+  | 'manipulation'
+  | 'rhyme'
+  | 'sightWords'
+  | 'numberSense'
+  | 'comprehension'
+  | 'patterns'
+  | 'focus'
+  | 'flexibility'
+  | 'talk';
+
+/** Broad groupings, so eleven skills stay legible on one screen. */
+export type SkillArea = 'reading' | 'numbers' | 'thinking' | 'talking';
 
 export interface SkillCard {
   /** Stable key for the thing being learned, e.g. "sight:because". */
@@ -174,9 +226,11 @@ export interface Settings {
   /** Games unlock only after the night's story has been played. */
   storyBeforeGames: boolean;
   notificationsEnabled: boolean;
-  elevenLabsKey?: string;
-  anthropicKey?: string;
+  /** Only set for self-hosted installs; hosted builds bake this in. */
   serverUrl?: string;
+  /** Preferred sleep sound and timer on the child's device. */
+  ambientId?: string;
+  sleepTimerMinutes?: number;
 }
 
 export interface AppData {
@@ -185,11 +239,23 @@ export interface AppData {
   children: Child[];
   voices: VoiceProfile[];
   stories: Story[];
+  lullabies: LullabyDelivery[];
   replies: ChildReply[];
   cards: SkillCard[];
   sessions: GameSession[];
+  journal: JournalEntry[];
   settings: Settings;
   version: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  kind: string;
+  summary: string;
+  actorName?: string;
+  subjectId?: string;
+  detail?: Record<string, unknown>;
+  createdAt: number;
 }
 
 export interface Session {

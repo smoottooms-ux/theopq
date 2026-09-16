@@ -24,10 +24,10 @@ in `.github/workflows/android.yml` and collect `app/build/outputs/bundle/release
 
 Google will ask. Answer honestly:
 
-- **Data collected:** email address and a PIN hash, only if the user connects a sync server they
-  themselves run. Nothing is collected by default.
-- **Audio:** recorded with explicit consent; sent to ElevenLabs only when the user supplies their
-  own ElevenLabs key; stored on-device otherwise.
+- **Data collected:** email address, a scrypt hash of the PIN, the child's first name and age, and
+  the stories and recordings the family creates.
+- **Audio:** voice recordings are collected with explicit typed consent, sent to our voice provider
+  to build the narration model, and the raw samples are deleted once the model is built.
 - **Children's policy:** the child-facing side has no ads, no in-app purchases, no third-party
   analytics, no external links, and no chat with anyone outside the family.
 - **AI disclosure:** the app synthesises a parent's voice with the parent's recorded consent, and
@@ -78,6 +78,45 @@ recordings of children.
 
 Set `CORS_ORIGIN` to your web app's origin in production rather than leaving it `*`.
 
+### Environment
+
+Copy `server/.env.example` and fill it in. The ones that matter:
+
+| Variable | Why |
+|---|---|
+| `ELEVENLABS_API_KEY` | Voice cloning and narration. Without it the app still ships stories, read by the child's device. |
+| `ANTHROPIC_API_KEY` | Bespoke story writing. Without it the built-in engine is used. |
+| `CORS_ORIGIN` | Set to your web origin. Leaving it `*` in production is sloppy. |
+| `ADMIN_TOKEN` | Lets you grant and cancel plans by hand. `openssl rand -hex 32`. |
+| `STRIPE_*` | Optional. Payments work without them being set — you just grant plans yourself. |
+
+### Turning payments on
+
+1. Create three Stripe Prices (monthly, yearly, one-off) and put their ids in `STRIPE_PRICE_*`.
+2. Add a webhook endpoint pointing at `https://your-server/billing/webhook`, subscribed to
+   `checkout.session.completed`, `invoice.payment_failed` and `customer.subscription.deleted`.
+3. Put the signing secret in `STRIPE_WEBHOOK_SECRET` and the API key in `STRIPE_SECRET_KEY`.
+4. Set `APP_URL` so checkout returns the parent to the right place.
+
+Until all of that is set, `/billing/plans` reports `checkoutAvailable: false`, the app shows a
+"contact us" card instead of a buy button, and you grant plans with the admin endpoint. That is a
+perfectly good way to run the first fifty customers.
+
+### Watching what it costs you
+
+Every billable call is written to `usage_events` with the family, kind and amount:
+
+```sql
+-- narrated characters this month, by family
+SELECT family_id, SUM(amount) AS chars
+FROM usage_events
+WHERE kind = 'narration' AND created_at > strftime('%s', 'now', '-30 days') * 1000
+GROUP BY family_id ORDER BY chars DESC;
+```
+
+Compare that against your provider invoice. If a family is consistently near the cap, either the
+plan is underpriced or they're your best case study — find out which.
+
 ### Backups
 
 Two things matter and they are both in `DATA_DIR`:
@@ -113,8 +152,11 @@ secure origin.
 |---|---|
 | The app | Free. Runs entirely offline. |
 | Sync server | Whatever a small VPS costs you. It is one Node process and a SQLite file. |
-| ElevenLabs | Paid plan required for voice cloning. A ~4 minute story is roughly 4,000 characters; check their current per-character pricing and do the arithmetic for 30 nights. |
-| Anthropic | Optional. Only used if you add a key for bespoke story writing. |
+| ElevenLabs | **Your** cost, not the customer's. A ~4 minute story is roughly 4,000 characters. The Family plan allows 400k characters/month ≈ 100 stories. Multiply by their current per-character rate and check your margin before launch. |
+| Anthropic | **Your** cost. One story is a few thousand tokens. Only spent when `ANTHROPIC_API_KEY` is set. |
 
-A family that never adds either key pays nothing and still gets illustrated stories, the games,
-and the parent reading aloud in their own actual recorded voice.
+Do this arithmetic before you price. The £9.99 default in `entitlements.ts` is a placeholder, not
+advice — run the numbers against real provider rates and set it yourself.
+
+If your provider accounts go down or run dry, nothing breaks for the customer: stories are still
+written, still delivered, and still read aloud by the child's device, and the app says so plainly.

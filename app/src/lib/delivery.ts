@@ -1,17 +1,23 @@
 import type { Child, Parent, Settings, Story, VoiceProfile } from '../types';
 import { id } from './ids';
 import { audioStore } from './storage';
-import { generateStory, narrationScript, type GenerateInput } from './story/generate';
-import { llmAvailable } from './story/llm-available';
-import { getProvider } from './voice';
+import { generateStory, type GenerateInput } from './story/generate';
+import { TOPIC_LIST } from './story/packs';
+import { heartfeltById } from './story/heartfelt';
 import { notifyStoryReady } from './notifications';
+import {
+  cacheRemoteAudio,
+  composeStory as composeRemote,
+  type CloudSession,
+} from './cloud';
 
 /**
  * The pipeline a story runs through between "send" and a child pressing play.
  *
- * Deliberately fail-soft: if narration cannot be produced, the story is still
- * delivered as a readable book with the device narrator available. A child
- * getting *something* from their parent beats an error message at bedtime.
+ * When the family is connected, the server writes and narrates it against the
+ * operator's provider accounts — the parent never supplies a key. Offline, or
+ * if anything upstream fails, the on-device story engine produces the book and
+ * the child's phone reads it aloud. Either way a story arrives tonight.
  */
 
 export interface SendInput {
@@ -19,6 +25,7 @@ export interface SendInput {
   child: Child;
   voice?: VoiceProfile;
   settings: Settings;
+  cloud?: CloudSession | null;
   brief: Omit<GenerateInput, 'child' | 'parentName'>;
   /** Epoch ms. Defaults to the child's next bedtime. */
   scheduledFor?: number;
@@ -28,16 +35,11 @@ export interface SendInput {
 }
 
 export async function composeStory(input: SendInput): Promise<Story> {
-  const { parent, child, voice, settings, brief, recorded } = input;
+  const { parent, child, voice, brief, recorded, cloud } = input;
   const report = input.onProgress ?? (() => undefined);
 
   report('Writing the story…');
-  const generateInput: GenerateInput = { ...brief, child, parentName: parent.name };
-  // The Anthropic SDK is a large dependency, so it is only pulled in when a
-  // key is actually configured. Most installs never download it.
-  const written = llmAvailable(settings)
-    ? await import('./story/llm').then((m) => m.generateStoryWithLlm(generateInput, settings))
-    : generateStory(generateInput);
+  const written = generateStory({ ...brief, child, parentName: parent.name });
 
   const story: Story = {
     id: id('story'),
@@ -53,8 +55,9 @@ export async function composeStory(input: SendInput): Promise<Story> {
     personalNote: brief.personalNote,
     comprehension: written.comprehension,
     vocabulary: written.vocabulary,
+    talkPrompts: [],
     voiceProfileId: voice?.id,
-    voiceProvider: recorded ? 'recorded' : voice?.status === 'ready' ? voice.provider : 'device',
+    voiceProvider: recorded ? 'recorded' : voice?.status === 'ready' ? 'managed' : 'device',
     durationEstimate: written.durationEstimate,
     status: 'ready',
     scheduledFor: input.scheduledFor ?? nextBedtime(child),
@@ -62,34 +65,77 @@ export async function composeStory(input: SendInput): Promise<Story> {
     playCount: 0,
   };
 
+  // The parent read it themselves: nothing to generate, nothing to spend.
   if (recorded) {
     report('Saving your recording…');
     story.audioKey = await audioStore.put(id('aud'), recorded);
+    if (cloud) {
+      await composeRemote(cloud, story, buildBrief(input, story), false).catch(() => undefined);
+    }
     return story;
   }
 
-  if (voice?.status === 'ready') {
-    const provider = getProvider(voice.provider);
-    if (provider.synthesizeFile) {
-      report('Recording it in your voice…');
-      try {
-        const blob = await provider.synthesizeFile({
-          text: narrationScript(story),
-          voice,
-          settings,
-          style: 'bedtime',
-        });
-        story.audioKey = await audioStore.put(id('aud'), blob);
-      } catch (err) {
-        // Keep the story. Downgrade the narration and say so honestly.
-        story.voiceProvider = 'device';
-        story.failureReason =
-          err instanceof Error ? err.message : 'Narration could not be generated.';
-      }
-    }
+  if (!cloud) {
+    // Offline or self-hosted-without-a-server: the book still ships.
+    story.voiceProvider = 'device';
+    return story;
   }
 
-  return story;
+  report(voice?.status === 'ready' ? 'Recording it in your voice…' : 'Sending…');
+  try {
+    const remote = await composeRemote(
+      cloud,
+      story,
+      buildBrief(input, story),
+      voice?.status === 'ready',
+    );
+
+    const merged: Story = {
+      ...story,
+      title: remote.title ?? story.title,
+      pages: remote.pages?.length ? remote.pages : story.pages,
+      comprehension: remote.comprehension ?? story.comprehension,
+      vocabulary: remote.vocabulary ?? story.vocabulary,
+      talkPrompts: remote.talkPrompts ?? [],
+      voiceProvider: remote.voiceProvider ?? story.voiceProvider,
+      failureReason: remote.narrationNote,
+    };
+
+    if (remote.audioUrl) {
+      report('Downloading it for offline…');
+      merged.audioKey = await cacheRemoteAudio(cloud, remote.audioUrl);
+    }
+
+    return merged;
+  } catch (err) {
+    // Quota and payment problems must surface; anything else degrades quietly.
+    if ((err as Error & { upgrade?: boolean }).upgrade) throw err;
+    story.voiceProvider = 'device';
+    story.failureReason = err instanceof Error ? err.message : 'Could not reach the server.';
+    return story;
+  }
+}
+
+function buildBrief(input: SendInput, story: Story) {
+  const topic = TOPIC_LIST.find((t) => t.id === input.brief.topic);
+  const heartfelt =
+    input.brief.topic === 'heartfelt'
+      ? heartfeltById(input.brief.heartfeltId ?? 'missed-tonight')
+      : undefined;
+
+  return {
+    childName: input.child.name,
+    age: input.child.age,
+    readingLevel: input.child.readingLevel,
+    interests: input.child.interests,
+    parentName: input.parent.name,
+    topic: input.brief.topic,
+    topicLabel: topic?.label ?? 'Adventure',
+    tone: input.brief.tone,
+    pages: story.pages.length,
+    personalNote: input.brief.personalNote,
+    heartfeltLabel: heartfelt?.label,
+  };
 }
 
 export async function deliver(story: Story, child: Child): Promise<Story> {

@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.126.0",
     "@capacitor-community/text-to-speech": "^8.0.2",
     "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.5.2",
@@ -22,8 +21,7 @@
     "@capacitor/status-bar": "^8.0.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.4",
-    "zod": "^4.6.5"
+    "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
