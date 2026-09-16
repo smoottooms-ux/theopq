@@ -29,8 +29,8 @@ export default function Welcome() {
           </div>
           <h1 style={{ fontSize: 38, marginBottom: 10 }}>Story Station</h1>
           <p className="soft" style={{ maxWidth: 330, margin: '0 auto' }}>
-            You are at work. They are going to bed. This is how you are still the one
-            who reads the story.
+            Bedtime happens whether you can be there or not. This is how you are still
+            the one reading the story, singing the song, and teaching them something.
           </p>
         </div>
       </div>

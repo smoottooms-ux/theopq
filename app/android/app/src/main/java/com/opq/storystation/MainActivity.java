@@ -1,4 +1,4 @@
-package com.opq.nightshift;
+package com.opq.storystation;
 
 import com.getcapacitor.BridgeActivity;
 

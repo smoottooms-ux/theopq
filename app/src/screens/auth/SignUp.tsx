@@ -82,14 +82,14 @@ export default function SignUp() {
         <div className="card stack">
           <Field
             label="What does your child call you?"
-            hint="This is the name they will see and hear. Dad, Mum, Papa, Nana — whatever they actually say."
+            hint="However they say it: Mum, Dad, Mama, Papa, Nana, Grandad, or your first name. It is what they will see and hear."
           >
             <input
               id="signup-name"
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Dad"
+              placeholder="What they call you"
               autoComplete="name"
               required
             />

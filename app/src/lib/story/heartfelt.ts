@@ -1,22 +1,29 @@
 /**
  * Heartfelt messages.
  *
- * These are not stories. They are the thing a parent on a night shift actually
- * wants to say and is not there to say. The templates carry the shape; the
- * parent's own sentences carry the weight, so every template leaves room for
- * them and none of them pretend to be finished without it.
+ * These are not stories. They are the thing a parent wants to say and cannot
+ * say right now — and "cannot" covers far more than being at work. Being in
+ * the next room with a baby on you, on a call you cannot leave, ill, or
+ * simply out of patience by seven o'clock all count, and a parent in the same
+ * house needs these as much as one four hundred miles away.
  *
- * Placeholders: {child} {parent} {work}
+ * The templates carry the shape; the parent's own sentences carry the weight,
+ * so every one leaves room for them and none pretend to be finished without
+ * it.
+ *
+ * Placeholders: {child} {parent}
  */
 
 export type HeartfeltId =
-  | 'missed-tonight'
+  | 'cant-be-there'
+  | 'next-room'
   | 'proud'
   | 'when-i-was'
   | 'sorry'
   | 'miss-you'
   | 'hard-day'
-  | 'big-day-tomorrow';
+  | 'big-day-tomorrow'
+  | 'just-because';
 
 export interface HeartfeltTemplate {
   id: HeartfeltId;
@@ -31,17 +38,30 @@ export interface HeartfeltTemplate {
 
 export const HEARTFELT: HeartfeltTemplate[] = [
   {
-    id: 'missed-tonight',
-    label: 'I had to work tonight',
+    id: 'cant-be-there',
+    label: "I can't be there tonight",
     emoji: '🌃',
-    blurb: 'For the nights the shift wins.',
-    promptForParent: 'One specific thing you will do together when you are back.',
+    blurb: 'Work, travel, a shift, a hospital — whatever is keeping you away.',
+    promptForParent: 'Where you are, and one specific thing you will do together when you are back.',
     pages: [
       "Hey {child}. It's {parent}. I'm not there to tuck you in tonight, so I recorded this instead. Press play and I'm right here.",
-      "I'm at {work} right now. It's dark and it's quiet and I'm thinking about you. That's the honest truth — a big part of why I'm here is so you have what you need there.",
       '{note}',
       "I know a recording isn't the same as me sitting on the edge of your bed. I'm not going to pretend it is. But it's me, and it's yours, and you can play it as many times as you want.",
       "Close your eyes now, {child}. I love you. I'll see you soon. Goodnight.",
+    ],
+  },
+  {
+    id: 'next-room',
+    label: "I'm here, just not free right now",
+    emoji: '🚪',
+    blurb: 'For when you are in the house but your hands are full.',
+    promptForParent: 'What you are doing, in plain words. Children mind being fobbed off far more than they mind waiting.',
+    pages: [
+      "Hi {child}. It's {parent}. I'm right here in the house — I just can't come in yet.",
+      '{note}',
+      "That's not you being pushed to the back of the queue. Grown-ups only have so many hands, and sometimes the timing is rubbish. It isn't about you.",
+      "So start without me. Get in, get comfy, and let this be the bit we do together tonight.",
+      "I'll come in and check on you. Goodnight, {child}. I love you.",
     ],
   },
   {
@@ -90,7 +110,7 @@ export const HEARTFELT: HeartfeltTemplate[] = [
     id: 'miss-you',
     label: 'I miss you',
     emoji: '🛻',
-    blurb: 'For the long hauls and the long stretches.',
+    blurb: 'For the long hauls, the long stretches, and the weeks apart.',
     promptForParent: 'Where you are, and one small thing you saw today they would like.',
     pages: [
       "Hi {child}, it's {parent}. I'm a long way from you tonight and I wanted you to hear my voice before you sleep.",
@@ -112,6 +132,19 @@ export const HEARTFELT: HeartfeltTemplate[] = [
       "You're allowed to feel rotten about that. You don't have to be cheerful about it for anybody, including me. Feeling bad about a bad thing means you're working properly.",
       "It will not feel like this forever. I promise you that, and I don't promise things I'm not sure about. Tomorrow will be a bit different. The day after, different again.",
       "You're not on your own with it. Goodnight, {child}. I love you.",
+    ],
+  },
+  {
+    id: 'just-because',
+    label: 'No reason at all',
+    emoji: '💫',
+    blurb: "Nothing happened. You just wanted them to hear it.",
+    promptForParent: 'Something you noticed about them this week. Small and specific beats big and general.',
+    pages: [
+      "Hi {child}. It's {parent}. Nothing's wrong — I just wanted to say something before you go to sleep.",
+      '{note}',
+      "That's it. That's the whole message. Sometimes a thing is worth saying even when there's no reason to say it.",
+      'Goodnight, {child}. I love you.',
     ],
   },
   {

@@ -43,7 +43,7 @@ export default function StoryBuilder() {
 
   const [childId, setChildId] = useState(params.get('child') ?? data.children[0]?.id ?? '');
   const [topic, setTopic] = useState<StoryTopic>('adventure');
-  const [heartfeltId, setHeartfeltId] = useState<HeartfeltId>('missed-tonight');
+  const [heartfeltId, setHeartfeltId] = useState<HeartfeltId>('cant-be-there');
   const [tone, setTone] = useState<StoryTone>('gentle');
   const [length, setLength] = useState<StoryLength>('medium');
   const [note, setNote] = useState('');

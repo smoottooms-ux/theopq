@@ -1,9 +1,10 @@
 # Story Station
 
-**Bedtime stories, lullabies and learning — read in your own voice, for the parents who aren't home at bedtime.**
+**Bedtime stories, lullabies and learning — read in your own voice, whether or not you can be there.**
 
-You're on nights. You're over the road. You're doing a double. Your kid still goes to bed at 7:30.
-Story Station is how you're still the one who reads the story.
+You're on nights. You're over the road. You're doing a double. You're in the next room with your
+hands full, or you're right there on the sofa and completely out of road. Your kid still goes to
+bed at 7:30. Story Station is how you're still the one who reads the story.
 
 One app, two sides. You sign in as the grown-up, teach it your voice once, and send stories.
 Your child signs in on their own device and — at their bedtime, every night — gets a notification,

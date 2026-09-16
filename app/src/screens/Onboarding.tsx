@@ -27,8 +27,9 @@ const STEPS: Step[] = [
     art: 'moon',
     emoji: '🌙',
     title: 'You read the bedtime story',
-    body: "Even when you're at work.",
-    point: 'Your child hears your actual voice at their bedtime, wherever you are.',
+    body: "Even when you can't be there.",
+    point:
+      'At work, on the road, in the next room with your hands full, or just out of energy — your child still hears your voice at bedtime.',
     cta: 'How?',
   },
   {
@@ -59,8 +60,9 @@ const STEPS: Step[] = [
     art: 'meadow',
     emoji: '🧠',
     title: 'Games that actually teach',
-    body: 'For the nights they still have energy.',
-    point: 'Letter sounds, counting, and stopping-and-thinking. No junk, no ads, nothing to buy.',
+    body: "For the nights they're still bouncing.",
+    point:
+      'Letter sounds, counting, and stopping-and-thinking — the winding-down kind, not the winding-up kind. No ads, nothing to buy, nothing to win.',
     cta: "Let's set it up",
   },
 ];

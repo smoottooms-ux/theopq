@@ -72,6 +72,57 @@ jobs:
         working-directory: app
         run: npx cap sync android
 
+      # The APK compiled fine and crashed on launch once, because the Gradle
+      # namespace was renamed and MainActivity.java was left in the old
+      # package. The manifest's ".MainActivity" is resolved at runtime, so
+      # nothing at build time noticed. This is that check.
+      - name: Verify the app can actually launch
+        working-directory: app/android
+        run: |
+          set -euo pipefail
+
+          namespace=$(grep -oP 'namespace\s*=\s*"\K[^"]+' app/build.gradle)
+          echo "Gradle namespace: $namespace"
+
+          activity=$(find app/src/main/java -name 'MainActivity.*' | head -1)
+          if [ -z "$activity" ]; then
+            echo "::error::No MainActivity source found at all."
+            exit 1
+          fi
+
+          declared=$(grep -oP '^package\s+\K[A-Za-z0-9_.]+' "$activity")
+          echo "MainActivity package: $declared"
+
+          if [ "$namespace" != "$declared" ]; then
+            echo "::error::MainActivity is in '$declared' but the manifest will look for it in '$namespace'. The app would install and then crash instantly with ClassNotFoundException."
+            exit 1
+          fi
+
+          expected_path="app/src/main/java/$(echo "$declared" | tr '.' '/')/MainActivity.java"
+          if [ ! -f "$expected_path" ]; then
+            echo "::error::MainActivity.java is not on its package path ($expected_path)."
+            exit 1
+          fi
+
+          echo "✓ MainActivity resolves: $namespace.MainActivity"
+
+      # A launcher activity that is not exported, or missing entirely, is the
+      # other way an APK installs and then does nothing when tapped.
+      - name: Verify the launcher intent
+        working-directory: app/android
+        run: |
+          set -euo pipefail
+          manifest=app/src/main/AndroidManifest.xml
+
+          grep -q 'android.intent.action.MAIN' "$manifest" \
+            || { echo "::error::No MAIN intent — the app would have no icon to tap."; exit 1; }
+          grep -q 'android.intent.category.LAUNCHER' "$manifest" \
+            || { echo "::error::No LAUNCHER category — the app would not appear in the launcher."; exit 1; }
+          grep -q 'android:exported="true"' "$manifest" \
+            || { echo "::error::Launcher activity is not exported — Android 12+ refuses to start it."; exit 1; }
+
+          echo "✓ Launcher intent is complete and exported"
+
       # A release build is only signed when the repository has a keystore.
       # Without one we still produce an installable debug APK.
       - name: Decode signing keystore

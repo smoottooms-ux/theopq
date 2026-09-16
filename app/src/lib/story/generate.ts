@@ -224,7 +224,7 @@ function shuffle<T>(arr: T[], rand: () => number): T[] {
 }
 
 function generateHeartfelt(input: GenerateInput): GeneratedStory {
-  const template = heartfeltById(input.heartfeltId ?? 'missed-tonight');
+  const template = heartfeltById(input.heartfeltId ?? 'cant-be-there');
   const note = input.personalNote?.trim();
 
   const slots = {

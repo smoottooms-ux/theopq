@@ -120,7 +120,7 @@ function buildBrief(input: SendInput, story: Story) {
   const topic = TOPIC_LIST.find((t) => t.id === input.brief.topic);
   const heartfelt =
     input.brief.topic === 'heartfelt'
-      ? heartfeltById(input.brief.heartfeltId ?? 'missed-tonight')
+      ? heartfeltById(input.brief.heartfeltId ?? 'cant-be-there')
       : undefined;
 
   return {
