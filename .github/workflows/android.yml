@@ -123,6 +123,31 @@ jobs:
 
           echo "✓ Launcher intent is complete and exported"
 
+      # The app shipped once with RECORD_AUDIO but not MODIFY_AUDIO_SETTINGS.
+      # Capacitor's WebChromeClient requests both for a getUserMedia() call and
+      # grants the WebView only if every permission comes back granted, while
+      # Android auto-denies an undeclared permission without showing a dialog.
+      # The result was a microphone that could never work and never said why.
+      - name: Verify the microphone can actually be granted
+        working-directory: app/android
+        run: |
+          set -euo pipefail
+          manifest=app/src/main/AndroidManifest.xml
+
+          if ! grep -rq 'getUserMedia' ../src; then
+            echo "App does not record audio — skipping."
+            exit 0
+          fi
+
+          for perm in RECORD_AUDIO MODIFY_AUDIO_SETTINGS; do
+            grep -q "android.permission.$perm" "$manifest" || {
+              echo "::error::The app calls getUserMedia but the manifest is missing android.permission.$perm. Capacitor requests RECORD_AUDIO and MODIFY_AUDIO_SETTINGS together and denies the WebView unless both are granted; Android silently denies any permission the manifest does not declare. Recording would fail with no prompt and no explanation."
+              exit 1
+            }
+          done
+
+          echo "✓ Microphone permissions are complete"
+
       # A release build is only signed when the repository has a keystore.
       # Without one we still produce an installable debug APK.
       - name: Decode signing keystore

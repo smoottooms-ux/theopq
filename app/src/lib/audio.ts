@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+
 /**
  * Microphone capture with a live level meter and a local quality check.
  *
@@ -88,6 +90,21 @@ export function describeMicError(err: unknown): MicProblem {
   switch (name) {
     case 'NotAllowedError':
     case 'SecurityError':
+      // Inside the installed app this is worth spelling out. The Android
+      // permission screen is three levels deep and "check your settings" sends
+      // a parent to a screen that often already says Allowed — which reads as
+      // the app being broken and lying about it.
+      if (Capacitor.isNativePlatform()) {
+        return {
+          message: 'Story Station does not have microphone permission yet.',
+          fix:
+            'Open your phone Settings → Apps → Story Station → Permissions → ' +
+            'Microphone → Allow, then come back and tap record again. If it ' +
+            'already says Allow, reinstall the app — the permission did not ' +
+            'attach properly on install.',
+          fatal: false,
+        };
+      }
       return {
         message: 'Microphone permission was refused.',
         fix: 'Allow microphone access for this app in your device settings, then try again.',

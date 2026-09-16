@@ -40,8 +40,19 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Recording the parent's voice and the child's reply. -->
+    <!--
+        Recording the parent's voice and the child's reply.
+
+        Both of these are required. Capacitor's WebChromeClient answers a
+        getUserMedia() call by requesting RECORD_AUDIO *and*
+        MODIFY_AUDIO_SETTINGS together, and grants the WebView only if every
+        permission in that request comes back granted. Android auto-denies a
+        request for any permission the manifest does not declare — silently,
+        without showing a dialog — so dropping MODIFY_AUDIO_SETTINGS makes the
+        microphone permanently unavailable no matter what the parent taps.
+    -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- The nightly bedtime story alert. -->
