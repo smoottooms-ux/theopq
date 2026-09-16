@@ -1,14 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { ChipGroup, Empty, Field, LevelMeter, Sheet, TopBar, useToast } from '../../components/ui';
+import {
+  ChipGroup,
+  Empty,
+  Field,
+  LevelMeter,
+  MicBlockedNotice,
+  Sheet,
+  TopBar,
+  useToast,
+} from '../../components/ui';
 import { IconMic, IconPlay, IconSend, IconSpark, IconX } from '../../components/Icons';
 import { StoryArt } from '../../components/StoryArt';
 import { TOPIC_LIST } from '../../lib/story/packs';
 import { HEARTFELT, type HeartfeltId } from '../../lib/story/heartfelt';
 import { generateStory } from '../../lib/story/generate';
 import { composeStory, deliver, describeSchedule, nextBedtime } from '../../lib/delivery';
-import { Recorder, formatDuration, micSupported, playBlob } from '../../lib/audio';
+import {
+  Recorder,
+  describeMicError,
+  formatDuration,
+  micPermissionBlockedByHost,
+  micSupported,
+  playBlob,
+} from '../../lib/audio';
 import { scheduleNightly } from '../../lib/notifications';
 import { useCloud } from '../../lib/useCloud';
 import type { StoryLength, StoryTone, StoryTopic } from '../../types';
@@ -105,8 +121,9 @@ export default function StoryBuilder() {
       setRecording(true);
       setElapsed(0);
       tick.current = setInterval(() => setElapsed(rec.elapsed), 200);
-    } catch {
-      toast('Microphone blocked.');
+    } catch (err) {
+      const problem = describeMicError(err);
+      toast(problem.fix ? `${problem.message} ${problem.fix}` : problem.message);
     }
   };
 
@@ -319,6 +336,8 @@ export default function StoryBuilder() {
           body="The phone reads it. Free, instant, and honestly not your voice."
         />
       </div>
+
+      {narration === 'record' && micPermissionBlockedByHost() && <MicBlockedNotice compact />}
 
       {narration === 'record' && (
         <div className="card">

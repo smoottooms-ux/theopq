@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { Field, LevelMeter, Sheet, TopBar, useToast } from '../../components/ui';
+import { Field, LevelMeter, MicBlockedNotice, Sheet, TopBar, useToast } from '../../components/ui';
 import { IconCheck, IconMic, IconPlay, IconRefresh, IconTrash, IconX } from '../../components/Icons';
-import { Recorder, formatDuration, micSupported, playBlob, type RecordingResult } from '../../lib/audio';
+import {
+  Recorder,
+  describeMicError,
+  formatDuration,
+  micPermissionBlockedByHost,
+  micSupported,
+  playBlob,
+  type RecordingResult,
+} from '../../lib/audio';
 import { ENROLL_PROMPTS, MIN_SAMPLES } from '../../lib/voice/prompts';
 import { useCloud } from '../../lib/useCloud';
 import {
@@ -57,8 +65,9 @@ export default function VoiceStudio() {
       setActivePrompt(promptId);
       setElapsed(0);
       tick.current = setInterval(() => setElapsed(rec.elapsed), 200);
-    } catch {
-      toast('Microphone blocked. Allow mic access in your device settings.');
+    } catch (err) {
+      const problem = describeMicError(err);
+      toast(problem.fix ? `${problem.message} ${problem.fix}` : problem.message);
     }
   };
 
@@ -241,6 +250,8 @@ export default function VoiceStudio() {
         subtitle={`${usable.length} of ${ENROLL_PROMPTS.length} good takes`}
         onBack={() => navigate('/p')}
       />
+
+      {micPermissionBlockedByHost() && <MicBlockedNotice />}
 
       {blocked && (
         <div className="card" style={{ borderColor: 'var(--warn)' }}>

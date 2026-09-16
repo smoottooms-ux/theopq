@@ -14,6 +14,18 @@ export interface DbOptions {
   file: string;
 }
 
+/** Idempotent migration helper: SQLite has no ADD COLUMN IF NOT EXISTS. */
+function addColumnIfMissing(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (columns.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 export function openDb({ file }: DbOptions): Database.Database {
   mkdirSync(dirname(file), { recursive: true });
   const db = new Database(file);
@@ -37,6 +49,24 @@ export function openDb({ file }: DbOptions): Database.Database {
       pin_hash      TEXT NOT NULL,
       pin_salt      TEXT NOT NULL,
       created_at    INTEGER NOT NULL
+    );
+
+    /**
+     * Security questions for password recovery.
+     *
+     * Answers are hashed exactly like passwords: an answer to "your first pet"
+     * is reused across services far more often than a password is, so storing
+     * one in the clear would be worse than storing a password in the clear.
+     */
+    CREATE TABLE IF NOT EXISTS security_answers (
+      id          TEXT PRIMARY KEY,
+      parent_id   TEXT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+      position    INTEGER NOT NULL,
+      question    TEXT NOT NULL,
+      answer_hash TEXT NOT NULL,
+      answer_salt TEXT NOT NULL,
+      created_at  INTEGER NOT NULL,
+      UNIQUE(parent_id, position)
     );
 
     CREATE TABLE IF NOT EXISTS children (
@@ -95,6 +125,11 @@ export function openDb({ file }: DbOptions): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_replies_family ON replies(family_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
   `);
+
+  // Accounts originally had only a four-digit PIN. Passwords were added later,
+  // so the columns are introduced here rather than in the CREATE above.
+  addColumnIfMissing(db, 'parents', 'password_hash', 'TEXT');
+  addColumnIfMissing(db, 'parents', 'password_salt', 'TEXT');
 
   return db;
 }

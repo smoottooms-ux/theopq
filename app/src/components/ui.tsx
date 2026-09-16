@@ -298,3 +298,121 @@ export function LevelMeter({ level }: { level: number }) {
     </div>
   );
 }
+
+/**
+ * Shown wherever recording is offered but the host will not allow it.
+ *
+ * A parent who taps "Record" and gets nothing assumes their phone is broken.
+ * Saying so up front, with the reason and the way out, costs one card.
+ */
+export function MicBlockedNotice({ compact }: { compact?: boolean } = {}) {
+  return (
+    <div className="card" style={{ borderColor: 'var(--warn)' }}>
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <div className="avatar" aria-hidden>🎙️</div>
+        <div style={{ flex: 1 }}>
+          <h3>Recording is off in this preview</h3>
+          <p className="soft" style={{ marginTop: 6 }}>
+            Previews run inside a sandbox that blocks the microphone. Nothing is wrong with your
+            device.
+          </p>
+          {!compact && (
+            <p className="muted" style={{ marginTop: 8 }}>
+              Install the app, or open it on its own web address, and recording works normally.
+              Everything else here works as it will on a phone.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Password field with a show/hide toggle and an optional strength meter. */
+export function PasswordInput({
+  value,
+  onChange,
+  placeholder = 'At least 8 characters',
+  autoComplete = 'current-password',
+  strength,
+  autoFocus,
+  id,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+  /** 0-4 with a message, when this is a new password being chosen. */
+  strength?: { score: number; message: string; ok: boolean } | null;
+  autoFocus?: boolean;
+  id?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  const colours = ['var(--bad)', 'var(--bad)', 'var(--warn)', 'var(--good)', 'var(--good)'];
+
+  return (
+    <div>
+      <div style={{ position: 'relative' }}>
+        <input
+          id={id}
+          className="input"
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          autoFocus={autoFocus}
+          style={{ paddingRight: 64 }}
+        />
+        <button
+          type="button"
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Hide password' : 'Show password'}
+          style={{
+            position: 'absolute',
+            right: 6,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            border: 'none',
+            background: 'none',
+            color: 'var(--ink-mute)',
+            fontSize: 13,
+            fontWeight: 600,
+            padding: '8px 10px',
+            cursor: 'pointer',
+          }}
+        >
+          {visible ? 'Hide' : 'Show'}
+        </button>
+      </div>
+
+      {strength && value.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="row" style={{ gap: 4 }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: 4,
+                  borderRadius: 999,
+                  background: i < strength.score ? colours[strength.score] : 'var(--surface-2)',
+                  transition: 'background 0.2s ease',
+                }}
+              />
+            ))}
+          </div>
+          <div
+            className="muted"
+            style={{ marginTop: 6, color: strength.ok ? undefined : 'var(--warn)' }}
+          >
+            {strength.message}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

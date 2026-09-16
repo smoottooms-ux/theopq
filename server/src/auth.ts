@@ -13,6 +13,18 @@ import type { Request } from 'express';
 
 const SCRYPT_COST = { N: 16384, r: 8, p: 1, keylen: 64 };
 
+/**
+ * Security answers are compared loosely on purpose.
+ *
+ * Someone typing their first pet's name two years later will not reproduce
+ * their own capitalisation or spacing, and locking a parent out of their
+ * child's bedtime stories over a stray capital is a worse outcome than the
+ * small amount of entropy this gives up.
+ */
+export function normaliseAnswer(answer: string): string {
+  return answer.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[.,!?'"]/g, '');
+}
+
 export function hashPin(pin: string): { hash: string; salt: string } {
   const salt = randomBytes(16).toString('hex');
   const hash = scryptSync(pin, salt, SCRYPT_COST.keylen, SCRYPT_COST).toString('hex');
@@ -24,6 +36,18 @@ export function verifyPin(pin: string, hash: string, salt: string): boolean {
   const expected = Buffer.from(hash, 'hex');
   if (candidate.length !== expected.length) return false;
   return timingSafeEqual(candidate, expected);
+}
+
+/** Passwords and answers use the same KDF as PINs; only the input differs. */
+export const hashSecret = hashPin;
+export const verifySecret = verifyPin;
+
+export function checkPasswordStrength(password: string): string | null {
+  if (password.length < 8) return 'Passwords need at least 8 characters.';
+  if (/^(.)\1+$/.test(password)) return 'That is the same character repeated.';
+  const common = ['password', 'password1', '12345678', 'qwerty123', 'letmein', 'nightshift'];
+  if (common.includes(password.toLowerCase())) return 'That password is too easy to guess.';
+  return null;
 }
 
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -72,6 +96,11 @@ export function readSession(db: Database, req: Request): Session | null {
 
 export function purgeExpiredSessions(db: Database): void {
   db.prepare(`DELETE FROM sessions WHERE expires_at < ?`).run(Date.now());
+}
+
+/** Signs every device out — used after a password reset. */
+export function revokeAllSessions(db: Database, subjectId: string): void {
+  db.prepare(`DELETE FROM sessions WHERE subject_id = ?`).run(subjectId);
 }
 
 /* ---------------- rate limiting ---------------- */

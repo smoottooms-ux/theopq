@@ -32,7 +32,15 @@ before(async () => {
   });
   base = `http://127.0.0.1:${server.address().port}`;
 
-  const signup = await post('/auth/signup', { name: 'Dad', email: 'dad@example.com', pin: '1234' });
+  const signup = await post('/auth/signup', {
+    name: 'Dad',
+    email: 'dad@example.com',
+    password: 'correct horse battery staple',
+    questions: [
+      { question: 'First pet?', answer: 'Rufus' },
+      { question: 'First street?', answer: 'Maple Street' },
+    ],
+  });
   token = signup.body.token;
 
   const child = await post(
@@ -223,7 +231,11 @@ test('the journal is scoped to one family', async () => {
   const other = await post('/auth/signup', {
     name: 'Stranger',
     email: 'other@example.com',
-    pin: '1111',
+    password: 'a different long passphrase',
+    questions: [
+      { question: 'First pet?', answer: 'Biscuit' },
+      { question: 'First street?', answer: 'Elm Road' },
+    ],
   });
   const { body } = await get('/activity', other.body.token);
   assert.equal(body.length, 0, 'a new family sees nothing of anyone else');

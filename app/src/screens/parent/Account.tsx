@@ -1,8 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
-import { Field, PinInput, TopBar, useToast } from '../../components/ui';
+import { Field, PasswordInput, TopBar, useToast } from '../../components/ui';
+import {
+  SecurityQuestionFields,
+  emptyQuestions,
+  resolveQuestion,
+  type QuestionChoice,
+} from '../../components/SecurityQuestions';
+import { checkPassword, normaliseAnswer } from '../../lib/crypto';
+import { MIN_ANSWER_LENGTH } from '../../data/securityQuestions';
 import { IconCheck, IconRefresh } from '../../components/Icons';
 import { checkServer, cloudSignIn, cloudSignUp, defaultServerUrl, pushChild } from '../../lib/cloud';
 import { HAS_HOSTED_BACKEND } from '../../lib/config';
@@ -23,13 +31,34 @@ export default function AccountScreen() {
 
   const [mode, setMode] = useState<'signup' | 'signin'>('signup');
   const [email, setEmail] = useState(parent?.email ?? '');
-  const [pin, setPin] = useState('');
+  const [password, setPassword] = useState('');
+  const [questions, setQuestions] = useState<QuestionChoice[]>(emptyQuestions);
   const [serverUrl, setServerUrl] = useState(data.settings.serverUrl ?? defaultServerUrl());
   const [busy, setBusy] = useState(false);
+
+  const strength = useMemo(
+    () => checkPassword(password, [parent?.name ?? '', email.split('@')[0]]),
+    [password, parent, email],
+  );
 
   const submit = async () => {
     if (!parent) return;
     const target = HAS_HOSTED_BACKEND ? defaultServerUrl() : serverUrl.trim();
+
+    if (mode === 'signup') {
+      if (!strength.ok) return toast(strength.message);
+      for (const [i, q] of questions.entries()) {
+        if (!resolveQuestion(q)) return toast(`Question ${i + 1} needs to say something.`);
+        if (normaliseAnswer(q.answer).length < MIN_ANSWER_LENGTH) {
+          return toast(`Answer ${i + 1} is too short to be any use.`);
+        }
+      }
+      if (
+        resolveQuestion(questions[0]).toLowerCase() === resolveQuestion(questions[1]).toLowerCase()
+      ) {
+        return toast('Pick two different questions.');
+      }
+    }
 
     setBusy(true);
     try {
@@ -39,8 +68,16 @@ export default function AccountScreen() {
 
       const result =
         mode === 'signup'
-          ? await cloudSignUp(target, { name: parent.name, email, pin })
-          : await cloudSignIn(target, email, pin);
+          ? await cloudSignUp(target, {
+              name: parent.name,
+              email,
+              password,
+              questions: questions.map((q) => ({
+                question: resolveQuestion(q),
+                answer: q.answer,
+              })),
+            })
+          : await cloudSignIn(target, email, password);
 
       connect(result.session);
       if (!HAS_HOSTED_BACKEND) setSettings({ serverUrl: result.session.serverUrl });
@@ -51,7 +88,7 @@ export default function AccountScreen() {
       }
 
       toast(`You're in. Family code: ${result.joinCode}`);
-      setPin('');
+      setPassword('');
       navigate('/p/plan');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Could not sign in.');
@@ -177,17 +214,38 @@ export default function AccountScreen() {
           />
         </Field>
 
-        <Field label="PIN" hint="Use the same PIN you unlock the app with.">
-          <PinInput value={pin} onChange={setPin} />
+        <Field label="Password">
+          <PasswordInput
+            id="account-password"
+            value={password}
+            onChange={setPassword}
+            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+            strength={mode === 'signup' ? strength : null}
+          />
         </Field>
+
+        {mode === 'signup' && (
+          <>
+            <div className="section-label" style={{ marginTop: 4 }}>
+              If you forget it
+            </div>
+            <SecurityQuestionFields value={questions} onChange={setQuestions} idPrefix="account" />
+          </>
+        )}
 
         <button
           className="btn btn--block btn--lg"
           onClick={submit}
-          disabled={busy || pin.length !== 4 || !email.trim()}
+          disabled={busy || !password || !email.trim()}
         >
           {busy ? 'One moment…' : mode === 'signup' ? 'Create account — free trial' : 'Sign in'}
         </button>
+
+        {mode === 'signin' && (
+          <button className="btn btn--ghost btn--block btn--sm" onClick={() => navigate('/forgot')}>
+            I forgot my password
+          </button>
+        )}
 
         {mode === 'signup' && (
           <p className="muted" style={{ textAlign: 'center' }}>

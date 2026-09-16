@@ -35,6 +35,96 @@ export function micSupported(): boolean {
   );
 }
 
+/** True when the page is running inside someone else's frame. */
+export function inFrame(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    // A cross-origin parent throws on access, which itself proves we are framed.
+    return true;
+  }
+}
+
+/**
+ * Whether this page is even allowed to ask for the microphone.
+ *
+ * An embedded preview is the common case: a cross-origin iframe gets
+ * `NotAllowedError` from getUserMedia unless the host page delegates
+ * permission with `allow="microphone"`, and nothing the app does can change
+ * that. Worth detecting up front so the app explains the situation instead of
+ * telling a parent their microphone is broken.
+ */
+export function micPermissionBlockedByHost(): boolean {
+  if (!inFrame()) return false;
+  const policy = (document as Document & {
+    featurePolicy?: { allowsFeature(feature: string): boolean };
+  }).featurePolicy;
+  // Where the API exists it is authoritative; elsewhere assume a framed page
+  // is blocked, which matches how browsers actually behave.
+  return policy ? !policy.allowsFeature('microphone') : true;
+}
+
+export interface MicProblem {
+  /** Short line for a toast. */
+  message: string;
+  /** What the person can actually do about it. */
+  fix?: string;
+  /** True when no amount of tapping "allow" will help. */
+  fatal: boolean;
+}
+
+/** Turns a getUserMedia rejection into something a tired parent can act on. */
+export function describeMicError(err: unknown): MicProblem {
+  const name = err instanceof Error ? err.name : '';
+
+  if (micPermissionBlockedByHost()) {
+    return {
+      message: 'This preview cannot use the microphone.',
+      fix: 'Previews run in a sandbox that blocks recording. Install the app, or open it on its own web address, and the microphone works normally.',
+      fatal: true,
+    };
+  }
+
+  switch (name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return {
+        message: 'Microphone permission was refused.',
+        fix: 'Allow microphone access for this app in your device settings, then try again.',
+        fatal: false,
+      };
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return {
+        message: 'No microphone found on this device.',
+        fix: 'Plug in or enable a microphone and try again.',
+        fatal: true,
+      };
+    case 'NotReadableError':
+      return {
+        message: 'Something else is using the microphone.',
+        fix: 'Close other apps that might be recording — a call, a voice note — and try again.',
+        fatal: false,
+      };
+    default:
+      break;
+  }
+
+  if (!window.isSecureContext) {
+    return {
+      message: 'Recording needs a secure connection.',
+      fix: 'Open the app over https rather than http.',
+      fatal: true,
+    };
+  }
+
+  return {
+    message: 'Could not start recording.',
+    fix: err instanceof Error ? err.message : undefined,
+    fatal: false,
+  };
+}
+
 export class Recorder {
   private stream?: MediaStream;
   private recorder?: MediaRecorder;

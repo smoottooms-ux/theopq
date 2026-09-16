@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { LevelMeter, TopBar, useToast } from '../../components/ui';
+import { LevelMeter, MicBlockedNotice, TopBar, useToast } from '../../components/ui';
 import { IconCheck, IconMic, IconPlay } from '../../components/Icons';
-import { Recorder, formatDuration, micSupported, playBlob } from '../../lib/audio';
+import {
+  Recorder,
+  describeMicError,
+  formatDuration,
+  micPermissionBlockedByHost,
+  micSupported,
+  playBlob,
+} from '../../lib/audio';
 import { audioStore } from '../../lib/storage';
 import { id } from '../../lib/ids';
 import { useCloud } from '../../lib/useCloud';
@@ -53,8 +60,9 @@ export default function ReplyRecorder() {
         setElapsed(rec.elapsed);
         if (rec.elapsed > 60) void stop();
       }, 200);
-    } catch {
-      toast('I cannot hear you. Ask a grown-up about the microphone.');
+    } catch (err) {
+      const problem = describeMicError(err);
+      toast(problem.fatal ? problem.message : 'I cannot hear you. Ask a grown-up about the microphone.');
     }
   };
 
@@ -108,6 +116,8 @@ export default function ReplyRecorder() {
   return (
     <div className="screen">
       <TopBar title={`Talk to ${who}`} onBack={() => navigate(-1)} />
+
+      {micPermissionBlockedByHost() && <MicBlockedNotice compact />}
 
       <div className="card" style={{ textAlign: 'center', padding: '30px 20px' }}>
         <p className="soft" style={{ marginBottom: 24 }}>

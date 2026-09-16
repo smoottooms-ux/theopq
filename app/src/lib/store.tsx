@@ -21,6 +21,7 @@ import type {
   VoiceProfile,
 } from '../types';
 import { id, joinCode } from './ids';
+import { hashAnswer, hashSecret, verifyAnswer, verifySecret } from './crypto';
 import { emptyData, loadData, loadSession, saveData, saveSession } from './storage';
 
 interface Ctx {
@@ -32,8 +33,19 @@ interface Ctx {
   /** The signed-in child, if the current session is a child session. */
   child: Child | null;
   update(fn: (draft: AppData) => void): void;
-  signUpParent(input: { name: string; email: string; pin: string }): Promise<Parent>;
-  signInParent(email: string, pin: string): Promise<Parent>;
+  signUpParent(input: {
+    name: string;
+    email: string;
+    password: string;
+    questions: { question: string; answer: string }[];
+  }): Promise<Parent>;
+  signInParent(email: string, password: string): Promise<Parent>;
+  /** Returns the questions to ask, without confirming the email exists. */
+  recoveryQuestions(email: string): string[] | null;
+  /** Checks the answers without changing anything. */
+  verifyRecoveryAnswers(email: string, answers: string[]): Promise<boolean>;
+  /** Verifies both answers and sets a new password. */
+  resetPassword(email: string, answers: string[], newPassword: string): Promise<void>;
   signInChild(childId: string, pin: string): Promise<Child>;
   signOut(): Promise<void>;
   addChild(input: Omit<Child, 'id' | 'familyId' | 'role' | 'createdAt'>): Child;
@@ -96,10 +108,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUpParent: Ctx['signUpParent'] = useCallback(
-    async ({ name, email, pin }) => {
+    async ({ name, email, password, questions }) => {
       const normalised = email.trim().toLowerCase();
       if (data.parents.some((p) => p.email === normalised)) {
         throw new Error('There is already an account with that email on this device.');
+      }
+      if (questions.length < 2) {
+        throw new Error('Two security questions are needed to recover a lost password.');
       }
 
       const family = data.family ?? {
@@ -114,7 +129,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         familyId: family.id,
         name: name.trim(),
         email: normalised,
-        pin,
+        password: await hashSecret(password),
+        securityQuestions: await Promise.all(
+          questions.map(async (q) => ({
+            question: q.question.trim(),
+            answer: await hashAnswer(q.answer),
+          })),
+        ),
         role: 'parent',
         createdAt: Date.now(),
       };
@@ -130,15 +151,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const signInParent: Ctx['signInParent'] = useCallback(
-    async (email, pin) => {
+    async (email, password) => {
       const normalised = email.trim().toLowerCase();
       const parent = data.parents.find((p) => p.email === normalised);
-      if (!parent) throw new Error('No account found for that email on this device.');
-      if (parent.pin !== pin) throw new Error('That PIN does not match.');
+
+      // Same message either way, so this never confirms which emails exist.
+      const wrong = new Error('That email and password do not match.');
+      if (!parent) throw wrong;
+
+      const ok = parent.password
+        ? await verifySecret(password, parent.password)
+        : // An account created before passwords existed can get in once with
+          // its old code; the UI then makes it set a real password.
+          !!parent.pin && parent.pin === password;
+      if (!ok) throw wrong;
+
       await setActiveSession({ role: 'parent', userId: parent.id });
       return parent;
     },
     [data.parents, setActiveSession],
+  );
+
+  const recoveryQuestions: Ctx['recoveryQuestions'] = useCallback(
+    (email) => {
+      const parent = data.parents.find((p) => p.email === email.trim().toLowerCase());
+      if (!parent?.securityQuestions?.length) return null;
+      return parent.securityQuestions.map((q) => q.question);
+    },
+    [data.parents],
+  );
+
+  const verifyRecoveryAnswers: Ctx['verifyRecoveryAnswers'] = useCallback(
+    async (email, answers) => {
+      const parent = data.parents.find((p) => p.email === email.trim().toLowerCase());
+      if (!parent?.securityQuestions?.length) return false;
+
+      // Every answer is checked before reporting, so a wrong first answer does
+      // not reveal whether the second one was right.
+      const results = await Promise.all(
+        parent.securityQuestions.map((q, i) => verifyAnswer(answers[i] ?? '', q.answer)),
+      );
+      return results.every(Boolean);
+    },
+    [data.parents],
+  );
+
+  const resetPassword: Ctx['resetPassword'] = useCallback(
+    async (email, answers, newPassword) => {
+      const parent = data.parents.find((p) => p.email === email.trim().toLowerCase());
+      if (!parent?.securityQuestions?.length) {
+        throw new Error('That account cannot be recovered on this device.');
+      }
+      if (!(await verifyRecoveryAnswers(email, answers))) {
+        throw new Error('Those answers do not match. Both have to be right.');
+      }
+
+      const password = await hashSecret(newPassword);
+      update((d) => {
+        const i = d.parents.findIndex((p) => p.id === parent.id);
+        // The old code is dropped: a recovered account should not still be
+        // reachable with whatever four digits it used to have.
+        if (i >= 0) d.parents[i] = { ...d.parents[i], password, pin: undefined };
+      });
+    },
+    [data.parents, update],
   );
 
   const signInChild: Ctx['signInChild'] = useCallback(
@@ -255,6 +331,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       update,
       signUpParent,
       signInParent,
+      recoveryQuestions,
+      verifyRecoveryAnswers,
+      resetPassword,
       signInChild,
       signOut,
       addChild,
@@ -267,8 +346,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       data, session, loading, parent, child, update, signUpParent, signInParent,
-      signInChild, signOut, addChild, upsertVoice, addStory, patchStory,
-      addReply, recordSession, setSettings,
+      recoveryQuestions, verifyRecoveryAnswers, resetPassword, signInChild, signOut,
+      addChild, upsertVoice,
+      addStory, patchStory, addReply, recordSession, setSettings,
     ],
   );
 

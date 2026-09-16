@@ -3,12 +3,17 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  checkPasswordStrength,
   checkRateLimit,
   clearRateLimit,
   createSession,
   hashPin,
+  hashSecret,
+  normaliseAnswer,
   purgeExpiredSessions,
+  revokeAllSessions,
   verifyPin,
+  verifySecret,
 } from './auth.js';
 import {
   DATA_DIR,
@@ -106,11 +111,43 @@ app.get('/ready', (_req, res) => {
 
 /* ---------------- accounts ---------------- */
 
-app.post('/auth/signup', (req, res) => {
-  const { name, email, pin, familyName } = req.body ?? {};
-  if (!name || !email || !/^\d{4}$/.test(String(pin ?? ''))) {
-    return res.status(400).json({ error: 'Name, email and a 4-digit PIN are required.' });
+interface QuestionInput {
+  question?: unknown;
+  answer?: unknown;
+}
+
+/** Both questions must be present, distinct, and have answers worth having. */
+function validateQuestions(raw: unknown): { question: string; answer: string }[] | string {
+  if (!Array.isArray(raw) || raw.length < 2) {
+    return 'Two security questions are required so a lost password can be recovered.';
   }
+
+  const parsed = (raw as QuestionInput[]).slice(0, 2).map((q) => ({
+    question: String(q?.question ?? '').trim(),
+    answer: String(q?.answer ?? ''),
+  }));
+
+  for (const [i, q] of parsed.entries()) {
+    if (!q.question) return `Question ${i + 1} is empty.`;
+    if (normaliseAnswer(q.answer).length < 2) return `Answer ${i + 1} is too short to be any use.`;
+  }
+  if (parsed[0].question.toLowerCase() === parsed[1].question.toLowerCase()) {
+    return 'The two questions must be different.';
+  }
+  return parsed;
+}
+
+app.post('/auth/signup', (req, res) => {
+  const { name, email, password, questions, familyName } = req.body ?? {};
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email and a password are required.' });
+  }
+
+  const weak = checkPasswordStrength(String(password));
+  if (weak) return res.status(400).json({ error: weak });
+
+  const security = validateQuestions(questions);
+  if (typeof security === 'string') return res.status(400).json({ error: security });
 
   const normalised = String(email).trim().toLowerCase();
   const existing = db.prepare(`SELECT id FROM parents WHERE email = ?`).get(normalised);
@@ -119,7 +156,7 @@ app.post('/auth/signup', (req, res) => {
   const now = Date.now();
   const familyId = id('fam');
   const parentId = id('par');
-  const { hash, salt } = hashPin(String(pin));
+  const { hash, salt } = hashSecret(String(password));
 
   db.transaction(() => {
     db.prepare(`INSERT INTO families (id, name, join_code, created_at) VALUES (?, ?, ?, ?)`).run(
@@ -128,10 +165,22 @@ app.post('/auth/signup', (req, res) => {
       joinCode(),
       now,
     );
+    // pin_hash is NOT NULL from the original schema; the password now lives in
+    // its own columns and the PIN columns are filled with unusable values.
     db.prepare(
-      `INSERT INTO parents (id, family_id, name, email, pin_hash, pin_salt, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO parents
+         (id, family_id, name, email, pin_hash, pin_salt, password_hash, password_salt, created_at)
+       VALUES (?, ?, ?, ?, '', '', ?, ?, ?)`,
     ).run(parentId, familyId, String(name).trim(), normalised, hash, salt, now);
+
+    for (const [position, q] of security.entries()) {
+      const answer = hashSecret(normaliseAnswer(q.answer));
+      db.prepare(
+        `INSERT INTO security_answers
+           (id, parent_id, position, question, answer_hash, answer_salt, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id('sq'), parentId, position, q.question, answer.hash, answer.salt, now);
+    }
   })();
 
   grantTrial(db, familyId);
@@ -146,21 +195,41 @@ app.post('/auth/signup', (req, res) => {
 });
 
 app.post('/auth/login', (req, res) => {
-  const { email, pin } = req.body ?? {};
+  const { email, password, pin } = req.body ?? {};
+  const secret = String(password ?? pin ?? '');
   const normalised = String(email ?? '').trim().toLowerCase();
 
   const wait = checkRateLimit(`login:${normalised}`);
   if (wait) return res.status(429).json({ error: `Too many tries. Wait ${wait}s.` });
 
   const row = db
-    .prepare(`SELECT id, family_id, name, email, pin_hash, pin_salt FROM parents WHERE email = ?`)
+    .prepare(
+      `SELECT id, family_id, name, email, pin_hash, pin_salt, password_hash, password_salt
+       FROM parents WHERE email = ?`,
+    )
     .get(normalised) as
-    | { id: string; family_id: string; name: string; email: string; pin_hash: string; pin_salt: string }
+    | {
+        id: string;
+        family_id: string;
+        name: string;
+        email: string;
+        pin_hash: string;
+        pin_salt: string;
+        password_hash?: string;
+        password_salt?: string;
+      }
     | undefined;
 
+  // An account created before passwords existed still signs in with its PIN.
+  const valid =
+    !!row &&
+    (row.password_hash && row.password_salt
+      ? verifySecret(secret, row.password_hash, row.password_salt)
+      : !!row.pin_hash && verifyPin(secret, row.pin_hash, row.pin_salt));
+
   // Same response either way, so the endpoint does not confirm which emails exist.
-  if (!row || !verifyPin(String(pin ?? ''), row.pin_hash, row.pin_salt)) {
-    return res.status(401).json({ error: 'Email or PIN is wrong.' });
+  if (!row || !valid) {
+    return res.status(401).json({ error: 'Email or password is wrong.' });
   }
 
   clearRateLimit(`login:${normalised}`);
@@ -198,6 +267,102 @@ app.post('/auth/child', (req, res) => {
   clearRateLimit(key);
   const session = createSession(db, family.id, child.id, 'child');
   res.json({ token: session.token, child: rowToChild(child) });
+});
+
+/**
+ * Step one of recovery: hand back the questions for an email.
+ *
+ * Always returns 200 with a questions array. An unknown email gets a pair of
+ * plausible-looking questions rather than a 404, so this cannot be used to
+ * find out which addresses have accounts.
+ */
+app.post('/auth/recover/questions', (req, res) => {
+  const normalised = String(req.body?.email ?? '').trim().toLowerCase();
+
+  const wait = checkRateLimit(`recover:${normalised}`, 10);
+  if (wait) return res.status(429).json({ error: `Too many tries. Wait ${wait}s.` });
+
+  const parent = db.prepare(`SELECT id FROM parents WHERE email = ?`).get(normalised) as
+    | { id: string }
+    | undefined;
+
+  if (!parent) {
+    return res.json({
+      questions: ['What was the name of your first pet?', 'What was your childhood nickname?'],
+    });
+  }
+
+  const rows = db
+    .prepare(`SELECT question FROM security_answers WHERE parent_id = ? ORDER BY position`)
+    .all(parent.id) as { question: string }[];
+
+  if (rows.length === 0) {
+    return res.status(409).json({
+      error: 'That account has no recovery questions set. Sign in and add them from Settings.',
+    });
+  }
+
+  res.json({ questions: rows.map((r) => r.question) });
+});
+
+/**
+ * Step two: check the answers and set a new password.
+ *
+ * Both answers must be right. A reset signs every device out, because a
+ * password someone had to recover may have been compromised.
+ */
+app.post('/auth/recover/reset', (req, res) => {
+  const normalised = String(req.body?.email ?? '').trim().toLowerCase();
+  const answers = Array.isArray(req.body?.answers) ? req.body.answers : [];
+  const password = String(req.body?.password ?? '');
+
+  // Deliberately tighter than login: guessing a pair of answers should not be
+  // something anyone can grind at.
+  const wait = checkRateLimit(`reset:${normalised}`, 5, 30 * 60_000);
+  if (wait) return res.status(429).json({ error: `Too many tries. Wait ${Math.ceil(wait / 60)} minutes.` });
+
+  const weak = checkPasswordStrength(password);
+  if (weak) return res.status(400).json({ error: weak });
+
+  const parent = db.prepare(`SELECT id FROM parents WHERE email = ?`).get(normalised) as
+    | { id: string }
+    | undefined;
+
+  const stored = parent
+    ? (db
+        .prepare(
+          `SELECT position, answer_hash, answer_salt FROM security_answers
+           WHERE parent_id = ? ORDER BY position`,
+        )
+        .all(parent.id) as { position: number; answer_hash: string; answer_salt: string }[])
+    : [];
+
+  // Every answer is checked even when the first is wrong, so timing does not
+  // reveal which one failed.
+  const allCorrect =
+    stored.length > 0 &&
+    stored
+      .map((row, i) =>
+        verifySecret(normaliseAnswer(String(answers[i] ?? '')), row.answer_hash, row.answer_salt),
+      )
+      .every(Boolean);
+
+  if (!parent || !allCorrect) {
+    return res.status(401).json({ error: 'Those answers do not match. Both have to be right.' });
+  }
+
+  const { hash, salt } = hashSecret(password);
+  db.transaction(() => {
+    db.prepare(`UPDATE parents SET password_hash = ?, password_salt = ? WHERE id = ?`).run(
+      hash,
+      salt,
+      parent.id,
+    );
+    revokeAllSessions(db, parent.id);
+  })();
+
+  clearRateLimit(`reset:${normalised}`);
+  res.json({ ok: true });
 });
 
 app.post('/auth/logout', requireAuth(), (req, res) => {

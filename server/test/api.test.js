@@ -67,7 +67,15 @@ test('a parent can sign up', async () => {
   const { status, body } = await call('/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Dad', email: 'Dad@Example.com', pin: '1234' }),
+    body: JSON.stringify({
+      name: 'Dad',
+      email: 'Dad@Example.com',
+      password: 'correct horse battery staple',
+      questions: [
+        { question: 'First pet?', answer: 'Rufus' },
+        { question: 'First street?', answer: 'Maple Street' },
+      ],
+    }),
   });
   assert.equal(status, 201);
   assert.ok(body.token);
@@ -80,7 +88,15 @@ test('duplicate emails are rejected', async () => {
   const { status } = await call('/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Dad', email: 'dad@example.com', pin: '1234' }),
+    body: JSON.stringify({
+      name: 'Dad',
+      email: 'dad@example.com',
+      password: 'correct horse battery staple',
+      questions: [
+        { question: 'First pet?', answer: 'Rufus' },
+        { question: 'First street?', answer: 'Maple Street' },
+      ],
+    }),
   });
   assert.equal(status, 409);
 });
@@ -89,7 +105,7 @@ test('a wrong PIN does not sign in', async () => {
   const { status } = await call('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'dad@example.com', pin: '9999' }),
+    body: JSON.stringify({ email: 'dad@example.com', password: 'wrong password entirely' }),
   });
   assert.equal(status, 401);
 });
@@ -98,7 +114,7 @@ test('the right PIN signs in', async () => {
   const { status, body } = await call('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'dad@example.com', pin: '1234' }),
+    body: JSON.stringify({ email: 'dad@example.com', password: 'correct horse battery staple' }),
   });
   assert.equal(status, 200);
   assert.ok(body.token);
@@ -187,7 +203,15 @@ test('another family cannot read this family\'s stories', async () => {
   const other = await call('/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'Stranger', email: 'nope@example.com', pin: '1111' }),
+    body: JSON.stringify({
+      name: 'Stranger',
+      email: 'nope@example.com',
+      password: 'a different long passphrase',
+      questions: [
+        { question: 'First pet?', answer: 'Biscuit' },
+        { question: 'First street?', answer: 'Elm Road' },
+      ],
+    }),
   });
   const { body } = await call('/stories', { headers: auth(other.body.token) });
   assert.deepEqual(body, [], 'family scoping holds');

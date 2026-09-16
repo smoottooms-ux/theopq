@@ -1,5 +1,7 @@
 /** Core domain types shared by the parent and child sides of the app. */
 
+import type { StoredSecret } from './lib/crypto';
+
 export type Role = 'parent' | 'child';
 
 export interface Family {
@@ -9,12 +11,25 @@ export interface Family {
   createdAt: number;
 }
 
+/** A security question and the hashed answer. Answers are never stored plainly. */
+export interface SecurityQuestion {
+  question: string;
+  answer: StoredSecret;
+}
+
 export interface Parent {
   id: string;
   familyId: string;
   name: string;
   email: string;
-  pin: string;
+  password: StoredSecret;
+  /** Two questions, chosen by the parent, used to recover a lost password. */
+  securityQuestions: SecurityQuestion[];
+  /**
+   * Legacy quick-unlock code from before accounts had passwords. Kept so an
+   * existing install can still get in once and set a password.
+   */
+  pin?: string;
   role: 'parent';
   /** Free text the parent writes about their schedule, used to tune delivery. */
   shiftNote?: string;

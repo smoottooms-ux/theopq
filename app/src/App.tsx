@@ -26,6 +26,8 @@ import Welcome from './screens/Welcome';
 import SignIn from './screens/auth/SignIn';
 import SignUp from './screens/auth/SignUp';
 import KidPicker from './screens/auth/KidPicker';
+import ForgotPassword from './screens/auth/ForgotPassword';
+import SetPassword from './screens/auth/SetPassword';
 import PairDevice from './screens/auth/PairDevice';
 
 import ParentHome from './screens/parent/Home';
@@ -97,6 +99,8 @@ export default function App() {
         <Route path="/welcome" element={<Welcome />} />
         <Route path="/signin" element={<SignIn />} />
         <Route path="/signup" element={<SignUp />} />
+        <Route path="/forgot" element={<ForgotPassword />} />
+        <Route path="/set-password" element={<RequireRole role="parent"><SetPassword /></RequireRole>} />
         <Route path="/kids" element={<KidPicker />} />
         <Route path="/pair" element={<PairDevice />} />
 

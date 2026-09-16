@@ -2,14 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
-import { Field, LevelMeter, Sheet, TopBar, useToast } from '../../components/ui';
+import { Field, LevelMeter, MicBlockedNotice, Sheet, TopBar, useToast } from '../../components/ui';
 import { IconMic, IconPlay, IconSend } from '../../components/Icons';
 import { StoryArt } from '../../components/StoryArt';
 import { LULLABIES, type Lullaby } from '../../data/lullabies';
 import { narrateLullaby } from '../../lib/cloud';
 import { audioStore } from '../../lib/storage';
 import { id } from '../../lib/ids';
-import { Recorder, formatDuration, micSupported, playBlob } from '../../lib/audio';
+import {
+  Recorder,
+  describeMicError,
+  formatDuration,
+  micPermissionBlockedByHost,
+  micSupported,
+  playBlob,
+} from '../../lib/audio';
 import type { LullabyDelivery } from '../../types';
 
 /**
@@ -61,8 +68,9 @@ export default function LullabiesScreen() {
       setRecording(true);
       setElapsed(0);
       tick.current = setInterval(() => setElapsed(rec.elapsed), 200);
-    } catch {
-      toast('Microphone blocked.');
+    } catch (err) {
+      const problem = describeMicError(err);
+      toast(problem.fix ? `${problem.message} ${problem.fix}` : problem.message);
     }
   };
 
@@ -262,6 +270,8 @@ export default function LullabiesScreen() {
                 🎤 Sing it myself
               </button>
             </div>
+
+            {mode === 'record' && micPermissionBlockedByHost() && <MicBlockedNotice compact />}
 
             {mode === 'record' && (
               <div className="card" style={{ marginTop: 0 }}>

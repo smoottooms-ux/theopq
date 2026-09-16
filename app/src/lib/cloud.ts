@@ -106,7 +106,12 @@ export interface AccountView {
 
 export async function cloudSignUp(
   serverUrl: string,
-  input: { name: string; email: string; pin: string },
+  input: {
+    name: string;
+    email: string;
+    password: string;
+    questions: { question: string; answer: string }[];
+  },
 ): Promise<{ session: CloudSession; joinCode: string }> {
   const res = await fetch(`${base(serverUrl)}/auth/signup`, {
     method: 'POST',
@@ -135,12 +140,12 @@ export async function cloudSignUp(
 export async function cloudSignIn(
   serverUrl: string,
   email: string,
-  pin: string,
+  password: string,
 ): Promise<{ session: CloudSession; joinCode: string }> {
   const res = await fetch(`${base(serverUrl)}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, pin }),
+    body: JSON.stringify({ email, password }),
   });
   const body = (await res.json()) as {
     token?: string;
@@ -148,7 +153,7 @@ export async function cloudSignIn(
     parent?: { id: string };
     family?: { join_code: string };
   };
-  if (!res.ok || !body.token) throw new Error(body.error ?? 'Email or PIN is wrong.');
+  if (!res.ok || !body.token) throw new Error(body.error ?? 'Email or password is wrong.');
 
   const session: CloudSession = {
     serverUrl: base(serverUrl),
@@ -513,4 +518,39 @@ async function asError(res: Response): Promise<Error> {
   const error = new Error(body.error ?? `Server returned ${res.status}.`);
   if (body.upgrade) (error as Error & { upgrade?: boolean }).upgrade = true;
   return error;
+}
+
+/* ---------------- hosted password recovery ---------------- */
+
+/** Step one: the questions this account chose. Never confirms the email exists. */
+export async function cloudRecoveryQuestions(
+  serverUrl: string,
+  email: string,
+): Promise<string[]> {
+  const res = await fetch(`${base(serverUrl)}/auth/recover/questions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  const body = (await res.json()) as { questions?: string[]; error?: string };
+  if (!res.ok) throw new Error(body.error ?? 'Could not start recovery.');
+  return body.questions ?? [];
+}
+
+/** Step two: both answers plus the new password. Signs every device out. */
+export async function cloudResetPassword(
+  serverUrl: string,
+  email: string,
+  answers: string[],
+  password: string,
+): Promise<void> {
+  const res = await fetch(`${base(serverUrl)}/auth/recover/reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, answers, password }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? 'Those answers do not match.');
+  }
 }
