@@ -1,0 +1,26 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+
+# Server runtime state
+server/data/
+server/dist/
+
+# Android build output
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/local.properties
+app/android/captures/
+app/android/.idea/
+*.keystore
+*.jks
+
+# Capacitor copies the built bundle in; CI regenerates it
+app/android/app/src/main/assets/public/
+
+# Scratch
+*.tmp.mjs

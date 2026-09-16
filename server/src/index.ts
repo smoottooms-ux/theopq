@@ -1,0 +1,543 @@
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { join, resolve } from 'node:path';
+import { openDb } from './db.js';
+import {
+  checkRateLimit,
+  clearRateLimit,
+  createSession,
+  hashPin,
+  purgeExpiredSessions,
+  readSession,
+  verifyPin,
+  type Session,
+} from './auth.js';
+
+/**
+ * Nightshift sync server.
+ *
+ * Small on purpose. It exists so a parent's phone and a child's tablet are the
+ * same account from two places — nothing more. It does not generate stories,
+ * it does not clone voices, and it never sees an API key: those stay on the
+ * parent's device.
+ */
+
+const PORT = Number(process.env.PORT ?? 8787);
+const DATA_DIR = resolve(process.env.DATA_DIR ?? './data');
+const MEDIA_DIR = join(DATA_DIR, 'media');
+/** Audio uploads are capped: a long story in MP3 is well under this. */
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+
+mkdirSync(MEDIA_DIR, { recursive: true });
+
+const db = openDb({ file: join(DATA_DIR, 'nightshift.db') });
+setInterval(() => purgeExpiredSessions(db), 60 * 60_000).unref();
+
+const app = express();
+app.disable('x-powered-by');
+app.use(express.json({ limit: '2mb' }));
+
+app.use((_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN ?? '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+  next();
+});
+app.options(/.*/, (_req, res) => res.sendStatus(204));
+
+const id = (prefix: string) =>
+  `${prefix}_${Date.now().toString(36)}${randomBytes(4).toString('hex')}`;
+
+function joinCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+}
+
+/* ---------------- auth middleware ---------------- */
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    session?: Session;
+  }
+}
+
+function requireAuth(role?: 'parent' | 'child') {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const session = readSession(db, req);
+    if (!session) return res.status(401).json({ error: 'Not signed in.' });
+    if (role && session.role !== role) return res.status(403).json({ error: 'Wrong account type.' });
+    req.session = session;
+    next();
+  };
+}
+
+/* ---------------- health ---------------- */
+
+app.get('/health', (_req, res) => res.json({ ok: true, version: 1 }));
+
+/* ---------------- accounts ---------------- */
+
+app.post('/auth/signup', (req, res) => {
+  const { name, email, pin, familyName } = req.body ?? {};
+  if (!name || !email || !/^\d{4}$/.test(String(pin ?? ''))) {
+    return res.status(400).json({ error: 'Name, email and a 4-digit PIN are required.' });
+  }
+
+  const normalised = String(email).trim().toLowerCase();
+  const existing = db.prepare(`SELECT id FROM parents WHERE email = ?`).get(normalised);
+  if (existing) return res.status(409).json({ error: 'That email already has an account.' });
+
+  const now = Date.now();
+  const familyId = id('fam');
+  const parentId = id('par');
+  const { hash, salt } = hashPin(String(pin));
+
+  db.transaction(() => {
+    db.prepare(`INSERT INTO families (id, name, join_code, created_at) VALUES (?, ?, ?, ?)`).run(
+      familyId,
+      familyName ?? `${String(name).split(' ')[0]}'s family`,
+      joinCode(),
+      now,
+    );
+    db.prepare(
+      `INSERT INTO parents (id, family_id, name, email, pin_hash, pin_salt, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(parentId, familyId, String(name).trim(), normalised, hash, salt, now);
+  })();
+
+  const session = createSession(db, familyId, parentId, 'parent');
+  res.status(201).json({
+    token: session.token,
+    parent: { id: parentId, familyId, name: String(name).trim(), email: normalised },
+    family: db.prepare(`SELECT * FROM families WHERE id = ?`).get(familyId),
+  });
+});
+
+app.post('/auth/login', (req, res) => {
+  const { email, pin } = req.body ?? {};
+  const normalised = String(email ?? '').trim().toLowerCase();
+
+  const wait = checkRateLimit(`login:${normalised}`);
+  if (wait) return res.status(429).json({ error: `Too many tries. Wait ${wait}s.` });
+
+  const row = db
+    .prepare(`SELECT id, family_id, name, email, pin_hash, pin_salt FROM parents WHERE email = ?`)
+    .get(normalised) as
+    | { id: string; family_id: string; name: string; email: string; pin_hash: string; pin_salt: string }
+    | undefined;
+
+  // Same response either way, so the endpoint does not confirm which emails exist.
+  if (!row || !verifyPin(String(pin ?? ''), row.pin_hash, row.pin_salt)) {
+    return res.status(401).json({ error: 'Email or PIN is wrong.' });
+  }
+
+  clearRateLimit(`login:${normalised}`);
+  const session = createSession(db, row.family_id, row.id, 'parent');
+  res.json({
+    token: session.token,
+    parent: { id: row.id, familyId: row.family_id, name: row.name, email: row.email },
+    family: db.prepare(`SELECT * FROM families WHERE id = ?`).get(row.family_id),
+  });
+});
+
+/** A child signs in on their own device with the family code plus their PIN. */
+app.post('/auth/child', (req, res) => {
+  const { joinCode: code, childName, pin } = req.body ?? {};
+  const key = `child:${String(code ?? '').toUpperCase()}:${String(childName ?? '').toLowerCase()}`;
+
+  const wait = checkRateLimit(key);
+  if (wait) return res.status(429).json({ error: `Too many tries. Wait ${wait}s.` });
+
+  const family = db
+    .prepare(`SELECT id FROM families WHERE join_code = ?`)
+    .get(String(code ?? '').toUpperCase()) as { id: string } | undefined;
+  if (!family) return res.status(401).json({ error: 'That code is not right.' });
+
+  const child = db
+    .prepare(`SELECT * FROM children WHERE family_id = ? AND lower(name) = lower(?)`)
+    .get(family.id, String(childName ?? '')) as
+    | { id: string; family_id: string; pin_hash: string; pin_salt: string }
+    | undefined;
+  if (!child || !verifyPin(String(pin ?? ''), child.pin_hash, child.pin_salt)) {
+    return res.status(401).json({ error: 'That code is not right.' });
+  }
+
+  clearRateLimit(key);
+  const session = createSession(db, family.id, child.id, 'child');
+  res.json({ token: session.token, child: rowToChild(child) });
+});
+
+app.post('/auth/logout', requireAuth(), (req, res) => {
+  db.prepare(`DELETE FROM sessions WHERE token = ?`).run(req.session!.token);
+  res.sendStatus(204);
+});
+
+/* ---------------- children ---------------- */
+
+interface ChildRow {
+  id: string;
+  family_id: string;
+  name: string;
+  age: number;
+  avatar: string;
+  reading_level: string;
+  interests: string;
+  bedtime: string;
+  timezone: string;
+  game_difficulty: number;
+  created_at: number;
+  updated_at: number;
+}
+
+function rowToChild(row: Partial<ChildRow> & { id: string; family_id: string }) {
+  return {
+    id: row.id,
+    familyId: row.family_id,
+    name: row.name,
+    age: row.age,
+    avatar: row.avatar,
+    role: 'child' as const,
+    readingLevel: row.reading_level,
+    interests: JSON.parse(row.interests ?? '[]') as string[],
+    bedtime: row.bedtime,
+    timezone: row.timezone,
+    gameDifficulty: row.game_difficulty,
+    createdAt: row.created_at,
+  };
+}
+
+app.get('/children', requireAuth(), (req, res) => {
+  const rows = db
+    .prepare(`SELECT * FROM children WHERE family_id = ? ORDER BY created_at`)
+    .all(req.session!.familyId) as ChildRow[];
+  res.json(rows.map(rowToChild));
+});
+
+app.post('/children', requireAuth('parent'), (req, res) => {
+  const b = req.body ?? {};
+  if (!b.name || !/^\d{4}$/.test(String(b.pin ?? ''))) {
+    return res.status(400).json({ error: 'A name and a 4-digit code are required.' });
+  }
+
+  const now = Date.now();
+  const childId = b.id && String(b.id).startsWith('kid_') ? String(b.id) : id('kid');
+  const { hash, salt } = hashPin(String(b.pin));
+
+  db.prepare(
+    `INSERT INTO children
+       (id, family_id, name, age, avatar, pin_hash, pin_salt, reading_level, interests,
+        bedtime, timezone, game_difficulty, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name, age = excluded.age, avatar = excluded.avatar,
+       pin_hash = excluded.pin_hash, pin_salt = excluded.pin_salt,
+       reading_level = excluded.reading_level, interests = excluded.interests,
+       bedtime = excluded.bedtime, timezone = excluded.timezone,
+       game_difficulty = excluded.game_difficulty, updated_at = excluded.updated_at`,
+  ).run(
+    childId,
+    req.session!.familyId,
+    String(b.name).trim(),
+    Number(b.age ?? 6),
+    String(b.avatar ?? '🦊'),
+    hash,
+    salt,
+    String(b.readingLevel ?? 'early'),
+    JSON.stringify(b.interests ?? []),
+    String(b.bedtime ?? '19:30'),
+    String(b.timezone ?? 'UTC'),
+    Number(b.gameDifficulty ?? 2),
+    now,
+    now,
+  );
+
+  const row = db.prepare(`SELECT * FROM children WHERE id = ?`).get(childId) as ChildRow;
+  res.status(201).json(rowToChild(row));
+});
+
+app.delete('/children/:id', requireAuth('parent'), (req, res) => {
+  db.prepare(`DELETE FROM children WHERE id = ? AND family_id = ?`).run(
+    req.params.id,
+    req.session!.familyId,
+  );
+  res.sendStatus(204);
+});
+
+/* ---------------- stories ---------------- */
+
+app.post('/stories', requireAuth('parent'), (req, res) => {
+  const story = req.body?.story;
+  if (!story?.id || !story?.toChildId) {
+    return res.status(400).json({ error: 'A story with an id and a recipient is required.' });
+  }
+
+  const owns = db
+    .prepare(`SELECT id FROM children WHERE id = ? AND family_id = ?`)
+    .get(story.toChildId, req.session!.familyId);
+  if (!owns) return res.status(404).json({ error: 'No such child in this family.' });
+
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO stories
+       (id, family_id, to_child_id, from_parent_id, payload, scheduled_for, status,
+        play_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       payload = excluded.payload, scheduled_for = excluded.scheduled_for,
+       status = excluded.status, updated_at = excluded.updated_at`,
+  ).run(
+    story.id,
+    req.session!.familyId,
+    story.toChildId,
+    req.session!.subjectId,
+    JSON.stringify(story),
+    Number(story.scheduledFor ?? now),
+    String(story.status ?? 'delivered'),
+    0,
+    now,
+    now,
+  );
+
+  res.status(201).json({ id: story.id, uploadUrl: `/stories/${story.id}/audio` });
+});
+
+/** Audio arrives as a raw body so the server needs no multipart dependency. */
+app.post(
+  '/stories/:id/audio',
+  requireAuth('parent'),
+  express.raw({ type: '*/*', limit: MAX_AUDIO_BYTES }),
+  (req, res) => {
+    const row = db
+      .prepare(`SELECT id, audio_file FROM stories WHERE id = ? AND family_id = ?`)
+      .get(req.params.id, req.session!.familyId) as { id: string; audio_file?: string } | undefined;
+    if (!row) return res.status(404).json({ error: 'No such story.' });
+    if (!req.body?.length) return res.status(400).json({ error: 'Empty upload.' });
+
+    const filename = `${row.id}.${extensionFor(req.header('content-type') ?? '')}`;
+    writeFileSync(join(MEDIA_DIR, filename), req.body as Buffer);
+
+    // Replacing narration should not leave the previous file behind.
+    if (row.audio_file && row.audio_file !== filename) {
+      try {
+        unlinkSync(join(MEDIA_DIR, row.audio_file));
+      } catch {
+        /* already gone */
+      }
+    }
+
+    db.prepare(`UPDATE stories SET audio_file = ?, updated_at = ? WHERE id = ?`).run(
+      filename,
+      Date.now(),
+      row.id,
+    );
+    res.status(201).json({ ok: true });
+  },
+);
+
+app.get('/stories', requireAuth(), (req, res) => {
+  const session = req.session!;
+  const since = Number(req.query.since ?? 0);
+
+  // A child only ever sees their own stories, whatever they ask for.
+  const childId = session.role === 'child' ? session.subjectId : req.query.childId;
+
+  const rows = (
+    childId
+      ? db
+          .prepare(
+            `SELECT * FROM stories WHERE family_id = ? AND to_child_id = ? AND updated_at > ?
+             ORDER BY scheduled_for DESC`,
+          )
+          .all(session.familyId, childId, since)
+      : db
+          .prepare(
+            `SELECT * FROM stories WHERE family_id = ? AND updated_at > ? ORDER BY scheduled_for DESC`,
+          )
+          .all(session.familyId, since)
+  ) as { id: string; payload: string; audio_file?: string; status: string; play_count: number }[];
+
+  res.json(
+    rows.map((row) => ({
+      ...(JSON.parse(row.payload) as Record<string, unknown>),
+      status: row.status,
+      playCount: row.play_count,
+      audioUrl: row.audio_file ? `/stories/${row.id}/audio` : null,
+    })),
+  );
+});
+
+app.get('/stories/:id/audio', requireAuth(), (req, res) => {
+  const row = db
+    .prepare(`SELECT audio_file, to_child_id FROM stories WHERE id = ? AND family_id = ?`)
+    .get(req.params.id, req.session!.familyId) as
+    | { audio_file?: string; to_child_id: string }
+    | undefined;
+
+  if (!row?.audio_file) return res.status(404).json({ error: 'No audio for that story.' });
+  if (req.session!.role === 'child' && row.to_child_id !== req.session!.subjectId) {
+    return res.status(403).json({ error: 'Not your story.' });
+  }
+
+  streamMedia(res, row.audio_file);
+});
+
+app.post('/stories/:id/played', requireAuth('child'), (req, res) => {
+  const result = db
+    .prepare(
+      `UPDATE stories SET status = 'played', play_count = play_count + 1, updated_at = ?
+       WHERE id = ? AND to_child_id = ?`,
+    )
+    .run(Date.now(), req.params.id, req.session!.subjectId);
+  if (!result.changes) return res.status(404).json({ error: 'No such story.' });
+  res.sendStatus(204);
+});
+
+app.delete('/stories/:id', requireAuth('parent'), (req, res) => {
+  const row = db
+    .prepare(`SELECT audio_file FROM stories WHERE id = ? AND family_id = ?`)
+    .get(req.params.id, req.session!.familyId) as { audio_file?: string } | undefined;
+
+  if (row?.audio_file) {
+    try {
+      unlinkSync(join(MEDIA_DIR, row.audio_file));
+    } catch {
+      /* already gone */
+    }
+  }
+  db.prepare(`DELETE FROM stories WHERE id = ? AND family_id = ?`).run(
+    req.params.id,
+    req.session!.familyId,
+  );
+  res.sendStatus(204);
+});
+
+/* ---------------- replies ---------------- */
+
+app.post(
+  '/replies',
+  requireAuth('child'),
+  express.raw({ type: '*/*', limit: MAX_AUDIO_BYTES }),
+  (req, res) => {
+    const storyId = String(req.query.storyId ?? '');
+    const duration = Number(req.query.duration ?? 0);
+    if (!req.body?.length) return res.status(400).json({ error: 'Empty upload.' });
+
+    const child = db
+      .prepare(`SELECT name FROM children WHERE id = ?`)
+      .get(req.session!.subjectId) as { name: string } | undefined;
+
+    const replyId = id('reply');
+    const filename = `${replyId}.${extensionFor(req.header('content-type') ?? '')}`;
+    writeFileSync(join(MEDIA_DIR, filename), req.body as Buffer);
+
+    db.prepare(
+      `INSERT INTO replies (id, family_id, story_id, child_id, child_name, audio_file, duration, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      replyId,
+      req.session!.familyId,
+      storyId,
+      req.session!.subjectId,
+      child?.name ?? 'your child',
+      filename,
+      duration,
+      Date.now(),
+    );
+
+    res.status(201).json({ id: replyId });
+  },
+);
+
+app.get('/replies', requireAuth('parent'), (req, res) => {
+  const rows = db
+    .prepare(`SELECT * FROM replies WHERE family_id = ? ORDER BY created_at DESC LIMIT 200`)
+    .all(req.session!.familyId) as {
+    id: string;
+    story_id: string;
+    child_id: string;
+    child_name: string;
+    duration: number;
+    heard_at?: number;
+    created_at: number;
+  }[];
+
+  res.json(
+    rows.map((row) => ({
+      id: row.id,
+      storyId: row.story_id,
+      childId: row.child_id,
+      childName: row.child_name,
+      duration: row.duration,
+      heardAt: row.heard_at ?? undefined,
+      createdAt: row.created_at,
+      audioUrl: `/replies/${row.id}/audio`,
+    })),
+  );
+});
+
+app.get('/replies/:id/audio', requireAuth('parent'), (req, res) => {
+  const row = db
+    .prepare(`SELECT audio_file FROM replies WHERE id = ? AND family_id = ?`)
+    .get(req.params.id, req.session!.familyId) as { audio_file: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'No such reply.' });
+  streamMedia(res, row.audio_file);
+});
+
+app.post('/replies/:id/heard', requireAuth('parent'), (req, res) => {
+  db.prepare(`UPDATE replies SET heard_at = ? WHERE id = ? AND family_id = ?`).run(
+    Date.now(),
+    req.params.id,
+    req.session!.familyId,
+  );
+  res.sendStatus(204);
+});
+
+/* ---------------- helpers ---------------- */
+
+function extensionFor(contentType: string): string {
+  if (contentType.includes('mpeg')) return 'mp3';
+  if (contentType.includes('mp4')) return 'm4a';
+  if (contentType.includes('ogg')) return 'ogg';
+  if (contentType.includes('wav')) return 'wav';
+  return 'webm';
+}
+
+function contentTypeFor(filename: string): string {
+  if (filename.endsWith('.mp3')) return 'audio/mpeg';
+  if (filename.endsWith('.m4a')) return 'audio/mp4';
+  if (filename.endsWith('.ogg')) return 'audio/ogg';
+  if (filename.endsWith('.wav')) return 'audio/wav';
+  return 'audio/webm';
+}
+
+function streamMedia(res: Response, filename: string): void {
+  // Filenames are server-generated, but the join is still guarded so a crafted
+  // row can never escape the media directory.
+  const path = join(MEDIA_DIR, filename);
+  if (!path.startsWith(MEDIA_DIR) || !existsSync(path)) {
+    res.status(404).json({ error: 'File missing.' });
+    return;
+  }
+  res.setHeader('Content-Type', contentTypeFor(filename));
+  res.setHeader('Content-Length', statSync(path).size);
+  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  createReadStream(path).pipe(res);
+}
+
+app.use((err: Error & { type?: string }, _req: Request, res: Response, _next: NextFunction) => {
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'That file is too big.' });
+  }
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong on the server.' });
+});
+
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`Nightshift server listening on :${PORT}`);
+    console.log(`Data directory: ${DATA_DIR}`);
+  });
+}
+
+export { app, db };
