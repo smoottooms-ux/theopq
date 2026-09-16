@@ -121,9 +121,34 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-      - name: Attach APK to release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # A CI artifact is a ZIP, and Android cannot install from a ZIP — on a
+      # phone you need a file manager just to unpack it. A release asset is a
+      # direct .apk URL you tap once, so every build publishes one.
+      - name: Publish installable APK
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'android-latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'Nightshift — latest Android build' }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/v') }}
           files: out/*.apk
-          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            **Build ${{ github.run_number }}** · commit `${{ github.sha }}`
+
+            ## Install it
+
+            1. Open this page **on the Android phone itself**.
+            2. Tap the `.apk` file below. It downloads in a few seconds.
+            3. Open the download. Android asks whether to allow installs from
+               this source — say yes. That prompt is normal for any app that
+               did not come from the Play Store.
+            4. Tap **Install**, then **Open**.
+
+            ## What works straight away
+
+            No account needed. Add a child, send a story, sign in as them and
+            play it. Stories are written on the device and read aloud by the
+            phone — labelled **"Device narrator — not a real voice"**, because
+            it isn't yours yet.
+
+            Connect a Nightshift server to unlock your own cloned voice.
