@@ -78,6 +78,12 @@ export function playAmbient(id: AmbientId, volume = 0.5): AmbientHandle {
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new AudioCtx();
 
+  // A WebView can hand back a context that is already suspended, and a
+  // suspended context's currentTime does not advance — so the fade-in below
+  // would never run and the sound would never arrive. Resuming is a no-op
+  // when the context is already running.
+  if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+
   const master = ctx.createGain();
   master.gain.setValueAtTime(0.0001, ctx.currentTime);
   master.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), ctx.currentTime + 2.5);

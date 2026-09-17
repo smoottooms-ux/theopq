@@ -204,6 +204,10 @@ export class Recorder {
   private meter(): void {
     const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new AudioCtx();
+    // A suspended context means a level meter that never moves and, while
+    // monitoring, headphones that stay silent. Both read as a broken
+    // microphone to the person holding the phone, so resume up front.
+    if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => undefined);
     const source = this.ctx.createMediaStreamSource(this.stream!);
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 1024;
