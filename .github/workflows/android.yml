@@ -295,9 +295,14 @@ jobs:
 
             ### If something doesn't work
 
-            - **No sound and no words lighting up?** Your phone has no text-to-speech
-              voice installed. The app detects this and highlights the words at
-              reading pace instead, so you can read along together.
-            - **Microphone not working?** Allow microphone access when asked. If you
-              said no the first time, it's in Android Settings → Apps → Story Station
-              → Permissions.
+            - **Words light up but you hear nothing?** Your phone has no
+              text-to-speech voice installed. Android Settings → search
+              **Text-to-speech** → install the voice data, then reopen the app.
+              Until then the words still highlight at reading pace so you can
+              read along together.
+            - **Microphone not working?** Allow microphone access when asked. If
+              you said no the first time, it's in Android Settings → Apps →
+              Story Station → Permissions → Microphone.
+            - **Updating from an older build and something still looks wrong?**
+              Uninstall first, then install this one. A fresh install clears any
+              permission state left over from a build that was broken.
