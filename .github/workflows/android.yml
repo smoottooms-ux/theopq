@@ -148,6 +148,28 @@ jobs:
 
           echo "✓ Microphone permissions are complete"
 
+      # The app shipped once reading stories through the Web Speech API alone.
+      # Android's System WebView exposes window.speechSynthesis but ships no
+      # voices with it, so speak() was a no-op and every story played in
+      # silence — while the phone's own TextToSpeech engine sat unused one
+      # layer down. Anything that reads aloud must be able to reach it.
+      - name: Verify stories can actually be spoken on a phone
+        working-directory: app
+        run: |
+          set -euo pipefail
+
+          for f in $(grep -rl 'speechSynthesis' src --include='*.ts' --include='*.tsx'); do
+            case "$f" in
+              *RecordingStudio*) continue ;;  # only cancels, never speaks
+            esac
+            grep -q '@capacitor-community/text-to-speech' "$f" || {
+              echo "::error::$f speaks through the Web Speech API with no native fallback. Android's WebView has no voices, so this plays silently on a real phone. Route it through the TextToSpeech plugin."
+              exit 1
+            }
+          done
+
+          echo "✓ Every read-aloud path can reach the phone's speech engine"
+
       # A release build is only signed when the repository has a keystore.
       # Without one we still produce an installable debug APK.
       - name: Decode signing keystore

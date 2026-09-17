@@ -16,6 +16,9 @@
  * longer to say, and punctuation buys a pause.
  */
 
+import { Capacitor } from '@capacitor/core';
+import { TextToSpeech } from '@capacitor-community/text-to-speech';
+
 export interface WordTiming {
   /** Index into the flattened word list. */
   index: number;
@@ -254,6 +257,70 @@ export interface ReadOptions {
 }
 
 /**
+ * Splits a script into utterances the speech engine will accept whole.
+ *
+ * Android's TextToSpeech silently truncates anything past roughly 4000
+ * characters, which would cut a long heartfelt message off mid-sentence — and
+ * nothing in the app would report it. Library scripts are nowhere near that,
+ * but a parent's own note has no length limit, so this is a guard rather than
+ * a routine step: short text comes back as a single chunk and behaves exactly
+ * as before. Splits land on paragraph then sentence boundaries so the pauses
+ * stay where they belong, and each chunk carries its offset so the
+ * highlighting keeps tracking the right word across the join.
+ */
+const MAX_UTTERANCE = 3500;
+
+function speechChunks(text: string): { text: string; offset: number }[] {
+  if (text.length <= MAX_UTTERANCE) return [{ text, offset: 0 }];
+
+  const out: { text: string; offset: number }[] = [];
+  // Keep the separators, so every offset stays true to the original string.
+  const parts = text.split(/(?<=\n\n|[.!?]\s)/);
+  let buf = '';
+  let offset = 0;
+
+  for (const part of parts) {
+    if (buf && buf.length + part.length > MAX_UTTERANCE) {
+      out.push({ text: buf, offset });
+      offset += buf.length;
+      buf = '';
+    }
+    buf += part;
+
+    // A single run with no sentence end in it — someone typing without
+    // punctuation — would otherwise sail past the limit and be truncated by
+    // the engine. Cut it on length rather than let it vanish.
+    while (buf.length > MAX_UTTERANCE) {
+      out.push({ text: buf.slice(0, MAX_UTTERANCE), offset });
+      offset += MAX_UTTERANCE;
+      buf = buf.slice(MAX_UTTERANCE);
+    }
+  }
+  if (buf) out.push({ text: buf, offset });
+
+  return out;
+}
+
+/**
+ * Whether the installed app can use the phone's own speech engine.
+ *
+ * This is the path that matters on a real phone. Android's System WebView
+ * exposes `window.speechSynthesis` but ships no voices with it, so the Web
+ * Speech API is a no-op there and the app goes silent — while the very same
+ * phone has a perfectly good TextToSpeech engine one layer down, the one that
+ * reads satnav directions aloud. The plugin talks to that.
+ */
+async function nativeSpeechAvailable(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  try {
+    const { voices } = await TextToSpeech.getSupportedVoices();
+    return voices.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Reads a script aloud, highlighting as it goes — and if the device cannot
  * speak, still runs the highlighting on a timer.
  *
@@ -296,6 +363,57 @@ export async function readAloud(options: ReadOptions): Promise<ReaderHandle> {
       },
     };
   };
+
+  // The phone's own engine first. On Android this is the only one that makes
+  // a sound; in a browser it does not exist and we fall through to Web Speech.
+  if (await nativeSpeechAvailable()) {
+    let stopped = false;
+    let finished = false;
+    // Where the current chunk starts in the whole script, so the engine's
+    // per-chunk character offsets still resolve to the right word.
+    let base = 0;
+    onMode?.('voice');
+
+    // Android reports the character range of each word as it says it, the
+    // same signal Web Speech gives us, so highlighting stays exact rather
+    // than estimated.
+    const listener = await TextToSpeech.addListener('onRangeStart', (info) => {
+      if (stopped) return;
+      onWord(wordAtOffset(script, base + info.start));
+    });
+
+    const cleanUp = () => void listener.remove();
+
+    void (async () => {
+      try {
+        for (const chunk of speechChunks(text)) {
+          if (stopped) return;
+          await TextToSpeech.speak({ text: chunk.text, rate, lang: 'en-US' });
+          base = chunk.offset + chunk.text.length;
+        }
+        if (stopped || finished) return;
+        finished = true;
+        cleanUp();
+        onDone();
+      } catch {
+        // The engine refused. Highlight silently rather than leaving a Pause
+        // button that never finishes.
+        if (stopped || finished) return;
+        finished = true;
+        cleanUp();
+        startSilent();
+      }
+    })();
+
+    return {
+      mode: 'voice',
+      stop: () => {
+        stopped = true;
+        cleanUp();
+        void TextToSpeech.stop();
+      },
+    };
+  }
 
   if (!(await speechAvailable())) return startSilent();
 
