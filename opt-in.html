@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SMS Sign-Up — OPQ Enterprises / TownSquare AI</title>
+<meta name="description" content="Opt in to receive SMS from OPQ Enterprises / TownSquare AI: appointment reminders, booking follow-ups, and service notifications."/>
+<style>
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px;margin:0 auto;padding:32px 20px;color:#111;line-height:1.6}
+h1{font-size:1.7rem}label{display:block;margin:14px 0 4px;font-weight:600}
+input[type=text],input[type=tel],input[type=email]{width:100%;padding:10px;border:1px solid #bbb;border-radius:6px;font-size:1rem}
+.consent{display:flex;gap:10px;align-items:flex-start;margin:20px 0;background:#f5f8ff;border:1px solid #d6e2ff;border-radius:8px;padding:14px}
+.consent input{margin-top:5px}
+button{margin-top:18px;background:#0b61d6;color:#fff;border:0;border-radius:8px;padding:12px 22px;font-size:1rem;cursor:pointer}
+.muted{color:#555;font-size:.85rem}a{color:#0b61d6}
+</style>
+</head>
+<body>
+<h1>Get Text Updates from OPQ / TownSquare AI</h1>
+<p>Sign up to receive appointment confirmations and reminders, booking follow-ups, missed-call text-backs, and account/service notifications by SMS.</p>
+
+<form action="https://formsubmit.co/josh.smoot@theopq.com" method="POST">
+  <input type="hidden" name="_subject" value="New SMS opt-in — OPQ/TownSquare"/>
+  <input type="hidden" name="_template" value="table"/>
+
+  <label for="name">Full name</label>
+  <input type="text" id="name" name="name" required/>
+
+  <label for="business">Business name (optional)</label>
+  <input type="text" id="business" name="business"/>
+
+  <label for="phone">Mobile phone number</label>
+  <input type="tel" id="phone" name="phone" placeholder="(417) 555-0123" required/>
+
+  <label for="email">Email (optional)</label>
+  <input type="email" id="email" name="email"/>
+
+  <div class="consent">
+    <input type="checkbox" id="consent" name="sms_consent" value="I agree to receive SMS" required/>
+    <label for="consent" style="font-weight:400;margin:0">
+      I agree to receive recurring automated text messages from OPQ Enterprises / TownSquare AI at the number provided (appointment reminders, follow-ups, missed-call text-backs, and service notifications). Consent is not a condition of purchase. Message frequency varies. Msg &amp; data rates may apply. Reply STOP to opt out, HELP for help. See our
+      <a href="/sms-terms.html">SMS Terms</a> and <a href="/privacy.html">Privacy Policy</a>.
+    </label>
+  </div>
+
+  <button type="submit">Sign Me Up</button>
+</form>
+
+<p class="muted" style="margin-top:24px">OPQ Enterprises · 4227 W Church St, Springfield, MO 65802 · (417) 693-5678 · <a href="mailto:josh.smoot@theopq.com">josh.smoot@theopq.com</a><br/>
+<strong>We never share or sell your mobile information or SMS consent to third parties for marketing.</strong></p>
+<p class="muted"><a href="/">← Back to OPQ Enterprises</a></p>
+</body>
+</html>
