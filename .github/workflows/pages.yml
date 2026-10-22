@@ -101,18 +101,43 @@ jobs:
       # deploy-pages fails with a bare "HttpError: Not Found" and an octokit
       # stack trace when Pages has never been turned on, which reads like a
       # broken workflow rather than a one-tap setting. This says which it is.
-      - name: Check Pages is turned on
+      # Tries to turn Pages on by itself before asking a human to.
+      #
+      # GITHUB_TOKEN carries the pages:write permission declared above. Whether
+      # that covers *creating* the site, as opposed to deploying to one that
+      # exists, is not something to guess at — so this attempts it and reports
+      # what actually came back. A 403 means the token cannot change repository
+      # settings and a person has to flip it once; everything after that is
+      # automatic either way.
+      - name: Turn Pages on if it is not
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
           api="https://api.github.com/repos/${{ github.repository }}/pages"
-          code=$(curl -sS -o /tmp/pages.json -w '%{http_code}' \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" "$api")
+          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+
+          code=$(curl -sS -o /tmp/pages.json -w '%{http_code}' "${auth[@]}" "$api")
 
           if [ "$code" = "404" ]; then
-            echo "::error title=GitHub Pages is not enabled::Turn it on once at https://github.com/${{ github.repository }}/settings/pages — set Source to 'GitHub Actions'. Nothing else is wrong: the app built and passed its installability checks, there is just nowhere to publish it to yet."
+            echo "Pages is not enabled. Attempting to enable it with the workflow token…"
+            create=$(curl -sS -o /tmp/create.json -w '%{http_code}' -X POST "${auth[@]}" \
+              "$api" -d '{"build_type":"workflow"}')
+            echo "POST /pages -> $create"
+            cat /tmp/create.json || true
+
+            if [ "$create" = "201" ] || [ "$create" = "204" ]; then
+              echo "::notice::Enabled GitHub Pages automatically — no settings change needed."
+              sleep 5
+              code=$(curl -sS -o /tmp/pages.json -w '%{http_code}' "${auth[@]}" "$api")
+            else
+              echo "::error title=GitHub Pages needs turning on once::The workflow token could not enable it (HTTP $create). Open https://github.com/${{ github.repository }}/settings/pages and set Source to 'GitHub Actions'. Nothing else is wrong — the app built and passed its installability checks, there is just nowhere to publish it to yet."
+              exit 1
+            fi
+          fi
+
+          if [ "$code" = "403" ]; then
+            echo "::error::The workflow token is not allowed to read Pages settings (403)."
             exit 1
           fi
 
