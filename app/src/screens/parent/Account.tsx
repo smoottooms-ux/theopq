@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
-import { Field, TopBar, useToast } from '../../components/ui';
+import { Field, PasswordInput, TopBar, useToast } from '../../components/ui';
 import {
   SecurityQuestionFields,
   emptyQuestions,
   resolveQuestion,
   type QuestionChoice,
 } from '../../components/SecurityQuestions';
-import { normaliseAnswer } from '../../lib/crypto';
+import { checkPassword, normaliseAnswer } from '../../lib/crypto';
 import { MIN_ANSWER_LENGTH } from '../../data/securityQuestions';
 import { IconCheck, IconRefresh } from '../../components/Icons';
 import { cloudSignIn, cloudSignUp, defaultServerUrl, pushChild } from '../../lib/cloud';
@@ -32,19 +32,19 @@ export default function AccountScreen() {
   const [mode, setMode] = useState<'signup' | 'signin'>('signup');
   const [email, setEmail] = useState(parent?.email ?? '');
   const [questions, setQuestions] = useState<QuestionChoice[]>(emptyQuestions);
-  const [answers, setAnswers] = useState(['', '']);
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
-  /** The questions this account was created with, asked back on sign-in. */
-  const askedQuestions = useMemo(
-    () => data.parents.find((p) => p.email === email.trim().toLowerCase())?.securityQuestions ?? [],
-    [data.parents, email],
+  const strength = useMemo(
+    () => checkPassword(password, [parent?.name ?? '', email.split('@')[0]]),
+    [password, parent, email],
   );
 
   const submit = async () => {
     if (!parent) return;
 
     if (mode === 'signup') {
+      if (!strength.ok) return toast(strength.message);
       for (const [i, q] of questions.entries()) {
         if (!resolveQuestion(q)) return toast(`Question ${i + 1} needs to say something.`);
         if (normaliseAnswer(q.answer).length < MIN_ANSWER_LENGTH) {
@@ -56,8 +56,6 @@ export default function AccountScreen() {
       ) {
         return toast('Pick two different questions.');
       }
-    } else if (answers.some((a) => normaliseAnswer(a).length < MIN_ANSWER_LENGTH)) {
-      return toast('Both answers are needed.');
     }
 
     setBusy(true);
@@ -69,12 +67,13 @@ export default function AccountScreen() {
           ? await cloudSignUp(target, {
               name: parent.name,
               email,
+              password,
               questions: questions.map((q) => ({
                 question: resolveQuestion(q),
                 answer: q.answer,
               })),
             })
-          : await cloudSignIn(target, email, answers);
+          : await cloudSignIn(target, email, password);
 
       connect(result.session);
 
@@ -84,7 +83,7 @@ export default function AccountScreen() {
       }
 
       toast(`You're in. Family code: ${result.joinCode}`);
-      setAnswers(['', '']);
+      setPassword('');
       navigate('/p/plan');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Could not sign in.');
@@ -250,46 +249,29 @@ export default function AccountScreen() {
           />
         </Field>
 
-        {mode === 'signup' ? (
+        <Field label="Password">
+          <PasswordInput
+            id="account-password"
+            value={password}
+            onChange={setPassword}
+            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+            strength={mode === 'signup' ? strength : null}
+          />
+        </Field>
+
+        {mode === 'signup' && (
           <>
             <div className="section-label" style={{ marginTop: 4 }}>
-              How you get back in
+              If you forget it
             </div>
-            <p className="muted" style={{ marginTop: -4 }}>
-              Two questions only you can answer. There is no password to forget — these are
-              what let you in, so pick things you will still know in two years.
-            </p>
             <SecurityQuestionFields value={questions} onChange={setQuestions} idPrefix="account" />
-          </>
-        ) : (
-          <>
-            {askedQuestions.length >= 2 ? (
-              askedQuestions.map((q, i) => (
-                <Field key={i} label={q.question}>
-                  <input
-                    className="input"
-                    value={answers[i] ?? ''}
-                    onChange={(e) =>
-                      setAnswers((prev) => prev.map((a, j) => (j === i ? e.target.value : a)))
-                    }
-                    placeholder="Your answer"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                  />
-                </Field>
-              ))
-            ) : (
-              <p className="muted">
-                Type the email you signed up with and your two questions appear here.
-              </p>
-            )}
           </>
         )}
 
         <button
           className="btn btn--block btn--lg"
           onClick={submit}
-          disabled={busy || !email.trim()}
+          disabled={busy || !password || !email.trim()}
         >
           {busy ? 'One moment…' : mode === 'signup' ? 'Create account — free trial' : 'Sign in'}
         </button>

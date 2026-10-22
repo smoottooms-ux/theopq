@@ -143,6 +143,7 @@ export async function cloudSignUp(
   input: {
     name: string;
     email: string;
+    password: string;
     questions: { question: string; answer: string }[];
   },
 ): Promise<{ session: CloudSession; joinCode: string }> {
@@ -172,19 +173,19 @@ export async function cloudSignUp(
 export async function cloudSignIn(
   serverUrl: string,
   email: string,
-  answers: string[],
+  password: string,
 ): Promise<{ session: CloudSession; joinCode: string }> {
   const res = await fetch(`${base(serverUrl)}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, answers }),
+    body: JSON.stringify({ email, password }),
   });
   const body = await readJson<{
     token?: string;
     parent?: { id: string };
     family?: { join_code: string };
   }>(res);
-  if (!res.ok || !body.token) throw new Error(body.error ?? 'That email and those answers do not match.');
+  if (!res.ok || !body.token) throw new Error(body.error ?? 'Email or password is wrong.');
 
   const session: CloudSession = {
     serverUrl: base(serverUrl),

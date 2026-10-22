@@ -22,19 +22,22 @@ export interface Parent {
   familyId: string;
   name: string;
   email: string;
-  /**
-   * Two questions the parent chose themselves. These ARE the credential: the
-   * app asks for them instead of a password, because a bedtime app that locks
-   * a tired parent out at 9pm has failed at the one job it has.
-   */
+  /** Required. Every account has one. */
+  password: StoredSecret;
+  /** Two questions the parent chose, used to reset a forgotten password. */
   securityQuestions: SecurityQuestion[];
   /**
-   * Password hash from the builds that had one. No longer asked for, and never
-   * written again — kept only so an existing account keeps working rather
-   * than being treated as corrupt and dropped.
+   * Whether the address has been confirmed.
+   *
+   * 'unverified' is not a locked state: a parent who has just recorded their
+   * voice is not going to be shut out of their own bedtime app over an email
+   * they have not opened. It gates the things that actually need a reachable
+   * address — billing, and recovery from a new device.
    */
-  password?: StoredSecret;
-  /** Older quick-unlock code, same reason. */
+  emailVerified?: boolean;
+  /** Set while a confirmation is outstanding, so the app can offer a resend. */
+  verificationSentAt?: number;
+  /** Older quick-unlock code from before passwords. Kept so an install works. */
   pin?: string;
   role: 'parent';
   /** Free text the parent writes about their schedule, used to tune delivery. */

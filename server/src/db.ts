@@ -58,6 +58,23 @@ export function openDb({ file }: DbOptions): Database.Database {
      * is reused across services far more often than a password is, so storing
      * one in the clear would be worse than storing a password in the clear.
      */
+    /*
+     * Email confirmation tokens.
+     *
+     * One row per outstanding request. The token is stored hashed for the
+     * same reason a password is: a leaked table should not hand someone the
+     * ability to confirm an address they do not own.
+     */
+    CREATE TABLE IF NOT EXISTS email_verifications (
+      id          TEXT PRIMARY KEY,
+      parent_id   TEXT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+      token_hash  TEXT NOT NULL,
+      token_salt  TEXT NOT NULL,
+      expires_at  INTEGER NOT NULL,
+      used_at     INTEGER,
+      created_at  INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS security_answers (
       id          TEXT PRIMARY KEY,
       parent_id   TEXT NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
@@ -130,6 +147,7 @@ export function openDb({ file }: DbOptions): Database.Database {
   // so the columns are introduced here rather than in the CREATE above.
   addColumnIfMissing(db, 'parents', 'password_hash', 'TEXT');
   addColumnIfMissing(db, 'parents', 'password_salt', 'TEXT');
+  addColumnIfMissing(db, 'parents', 'email_verified', 'INTEGER');
 
   return db;
 }

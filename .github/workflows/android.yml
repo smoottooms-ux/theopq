@@ -170,6 +170,31 @@ jobs:
 
           echo "✓ Every read-aloud path can reach the phone's speech engine"
 
+      # Every build used to be signed with the runner's own throwaway debug
+      # key, so no APK could install over the previous one. Each update needed
+      # an uninstall, and uninstalling wipes the app's data — a parent lost
+      # seven recorded songs to this. The key is committed now; this makes
+      # sure it stays the key that actually gets used.
+      - name: Verify the signing key is the committed one
+        working-directory: app/android
+        run: |
+          set -euo pipefail
+
+          test -f keystore/storystation-debug.keystore || {
+            echo "::error::The committed debug keystore is missing. Builds would be signed with a per-runner key and could not install over an existing app, forcing an uninstall that deletes the parent's recordings."
+            exit 1
+          }
+
+          grep -q 'storystation-debug.keystore' app/build.gradle || {
+            echo "::error::app/build.gradle does not reference the committed keystore, so Gradle will fall back to ~/.android/debug.keystore."
+            exit 1
+          }
+
+          expected=$(keytool -list -v -keystore keystore/storystation-debug.keystore \
+            -storepass android 2>/dev/null | grep -m1 'SHA256:' | tr -d ' ')
+          echo "Committed key $expected"
+          echo "::notice::Debug signing key $expected"
+
       # A release build is only signed when the repository has a keystore.
       # Without one we still produce an installable debug APK.
       - name: Decode signing keystore

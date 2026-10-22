@@ -18,6 +18,11 @@ app/android/captures/
 app/android/.idea/
 *.keystore
 *.jks
+# ...except the fixed debug key. It is not a secret (password "android") and
+# signs debug builds only. It is committed so every build shares one
+# signature, which is what lets a new APK install over the old one instead of
+# forcing an uninstall that wipes the parent's recordings.
+!app/android/keystore/storystation-debug.keystore
 
 # Capacitor copies the built bundle in; CI regenerates it
 app/android/app/src/main/assets/public/

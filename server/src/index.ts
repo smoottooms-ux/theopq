@@ -38,6 +38,7 @@ import {
 import { voiceRoutes } from './routes-voice.js';
 import { contentRoutes } from './routes-content.js';
 import { billingRoutes } from './routes-billing.js';
+import { mailConfigured, sendMail, verificationBody } from './mailer.js';
 
 /**
  * Story Station sync server.
@@ -137,18 +138,14 @@ function validateQuestions(raw: unknown): { question: string; answer: string }[]
   return parsed;
 }
 
-app.post('/auth/signup', (req, res) => {
+app.post('/auth/signup', async (req, res) => {
   const { name, email, password, questions, familyName } = req.body ?? {};
-  if (!name || !email) {
-    return res.status(400).json({ error: 'A name and an email are required.' });
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'Name, email and a password are required.' });
   }
 
-  // A password is optional now. The app signs in with the two security
-  // answers instead, so demanding one here would reject its own client.
-  if (password) {
-    const weak = checkPasswordStrength(String(password));
-    if (weak) return res.status(400).json({ error: weak });
-  }
+  const weak = checkPasswordStrength(String(password));
+  if (weak) return res.status(400).json({ error: weak });
 
   const security = validateQuestions(questions);
   if (typeof security === 'string') return res.status(400).json({ error: security });
@@ -160,9 +157,7 @@ app.post('/auth/signup', (req, res) => {
   const now = Date.now();
   const familyId = id('fam');
   const parentId = id('par');
-  // No password means no password columns: a row with an empty hash must not
-  // be reachable by sending an empty string.
-  const secret = password ? hashSecret(String(password)) : null;
+  const secret = hashSecret(String(password));
 
   db.transaction(() => {
     db.prepare(`INSERT INTO families (id, name, join_code, created_at) VALUES (?, ?, ?, ?)`).run(
@@ -182,8 +177,8 @@ app.post('/auth/signup', (req, res) => {
       familyId,
       String(name).trim(),
       normalised,
-      secret?.hash ?? null,
-      secret?.salt ?? null,
+      secret.hash,
+      secret.salt,
       now,
     );
 
@@ -199,26 +194,135 @@ app.post('/auth/signup', (req, res) => {
 
   grantTrial(db, familyId);
 
+  const verification = await issueVerification(parentId, String(name).trim(), normalised);
+
   const session = createSession(db, familyId, parentId, 'parent');
   res.status(201).json({
     token: session.token,
-    parent: { id: parentId, familyId, name: String(name).trim(), email: normalised },
+    parent: {
+      id: parentId,
+      familyId,
+      name: String(name).trim(),
+      email: normalised,
+      emailVerified: false,
+    },
     family: db.prepare(`SELECT * FROM families WHERE id = ?`).get(familyId),
     entitlement: describeEntitlement(db, familyId),
+    verification: {
+      sent: verification.sent,
+      mailConfigured: mailConfigured(),
+      link: verification.sent ? undefined : verification.link,
+    },
   });
 });
 
+
+/* ---------------- email confirmation ---------------- */
+
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Signing in.
+ * Issues a confirmation token and tries to email it.
  *
- * The two security answers are the credential the app sends. A password is
- * still accepted so an account made by an older build keeps working, but
- * nothing asks for one any more.
+ * The result says whether a message actually went out. A server with no mail
+ * provider still mints a working token and hands the link back to the caller,
+ * because the alternative — telling a parent "check your email" when nothing
+ * was sent — is the kind of dead end that makes an app feel broken.
  */
+async function issueVerification(
+  parentId: string,
+  name: string,
+  email: string,
+): Promise<{ sent: boolean; link: string; reason?: string }> {
+  const token = randomBytes(32).toString('hex');
+  const { hash, salt } = hashSecret(token);
+  const now = Date.now();
+
+  db.prepare(
+    `INSERT INTO email_verifications
+       (id, parent_id, token_hash, token_salt, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id('ver'), parentId, hash, salt, now + VERIFY_TTL_MS, now);
+
+  const appUrl = (process.env.APP_URL ?? '').replace(/\/+$/, '');
+  const link = `${appUrl}/#/verify?parent=${parentId}&token=${token}`;
+
+  const result = await sendMail(
+    email,
+    'Confirm your Story Station email',
+    verificationBody(name, link),
+  );
+  return { sent: result.sent, link, reason: result.reason };
+}
+
+/** Confirms an address. Idempotent: a second use of a spent token is a no-op. */
+app.post('/auth/verify-email', (req, res) => {
+  const parentId = String(req.body?.parent ?? '');
+  const token = String(req.body?.token ?? '');
+  if (!parentId || !token) return res.status(400).json({ error: 'A link is required.' });
+
+  const rows = db
+    .prepare(
+      `SELECT id, token_hash, token_salt, expires_at, used_at
+       FROM email_verifications WHERE parent_id = ? ORDER BY created_at DESC`,
+    )
+    .all(parentId) as {
+    id: string;
+    token_hash: string;
+    token_salt: string;
+    expires_at: number;
+    used_at: number | null;
+  }[];
+
+  const now = Date.now();
+  const match = rows.find(
+    (r) => !r.used_at && r.expires_at > now && verifySecret(token, r.token_hash, r.token_salt),
+  );
+
+  if (!match) {
+    const already = db
+      .prepare(`SELECT email_verified FROM parents WHERE id = ?`)
+      .get(parentId) as { email_verified?: number } | undefined;
+    // A parent who taps the link twice should see success, not an error.
+    if (already?.email_verified) return res.json({ verified: true });
+    return res.status(400).json({ error: 'That link has expired. Ask for a new one.' });
+  }
+
+  db.transaction(() => {
+    db.prepare(`UPDATE email_verifications SET used_at = ? WHERE id = ?`).run(now, match.id);
+    db.prepare(`UPDATE parents SET email_verified = 1 WHERE id = ?`).run(parentId);
+  })();
+
+  res.json({ verified: true });
+});
+
+/** Sends another confirmation. Rate limited, because it sends real email. */
+app.post('/auth/resend-verification', requireAuth('parent'), async (req: Request, res: Response) => {
+  const parentId = req.session!.subjectId;
+  const row = db
+    .prepare(`SELECT name, email, email_verified FROM parents WHERE id = ?`)
+    .get(parentId) as { name: string; email: string; email_verified?: number } | undefined;
+
+  if (!row) return res.status(404).json({ error: 'No such account.' });
+  if (row.email_verified) return res.json({ verified: true, sent: false });
+
+  const wait = checkRateLimit(`verify:${parentId}`);
+  if (wait) return res.status(429).json({ error: `Wait ${wait}s before asking again.` });
+
+  const out = await issueVerification(parentId, row.name, row.email);
+  res.json({
+    verified: false,
+    sent: out.sent,
+    mailConfigured: mailConfigured(),
+    // Only returned when nothing could be mailed, so the app has something to
+    // show instead of a promise it cannot keep.
+    link: out.sent ? undefined : out.link,
+  });
+});
+
 app.post('/auth/login', (req, res) => {
-  const { email, password, pin, answers } = req.body ?? {};
+  const { email, password, pin } = req.body ?? {};
   const secret = String(password ?? pin ?? '');
-  const sentAnswers = Array.isArray(answers) ? answers : null;
   const normalised = String(email ?? '').trim().toLowerCase();
 
   const wait = checkRateLimit(`login:${normalised}`);
@@ -242,38 +346,18 @@ app.post('/auth/login', (req, res) => {
       }
     | undefined;
 
-  const byAnswers = (): boolean => {
-    if (!row || !sentAnswers) return false;
-    const stored = db
-      .prepare(
-        `SELECT position, answer_hash, answer_salt FROM security_answers
-         WHERE parent_id = ? ORDER BY position`,
-      )
-      .all(row.id) as { position: number; answer_hash: string; answer_salt: string }[];
-    if (stored.length < 2) return false;
-
-    // Every answer is checked before reporting, so a wrong first answer does
-    // not reveal whether the second one was right.
-    const results = stored.map((q, i) =>
-      verifySecret(normaliseAnswer(String(sentAnswers[i] ?? '')), q.answer_hash, q.answer_salt),
-    );
-    return results.every(Boolean);
-  };
-
-  const byPassword = (): boolean => {
-    if (!row || !secret) return false;
-    if (row.password_hash && row.password_salt) {
-      return verifySecret(secret, row.password_hash, row.password_salt);
-    }
-    // An account created before passwords existed still signs in with its PIN.
-    return !!row.pin_hash && verifyPin(secret, row.pin_hash, row.pin_salt);
-  };
-
-  const valid = !!row && (sentAnswers ? byAnswers() : byPassword());
+  // An empty secret must never match, including against a row whose password
+  // columns are empty strings from the original schema.
+  const valid =
+    !!row &&
+    !!secret &&
+    (row.password_hash && row.password_salt
+      ? verifySecret(secret, row.password_hash, row.password_salt)
+      : !!row.pin_hash && verifyPin(secret, row.pin_hash, row.pin_salt));
 
   // Same response either way, so the endpoint does not confirm which emails exist.
   if (!row || !valid) {
-    return res.status(401).json({ error: 'That email and those answers do not match.' });
+    return res.status(401).json({ error: 'Email or password is wrong.' });
   }
 
   clearRateLimit(`login:${normalised}`);

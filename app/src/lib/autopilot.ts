@@ -56,14 +56,29 @@ export function pickForTonight(data: AppData, child: Child): LibraryItem | null 
     if (story.createdAt > seen) lastSent.set(story.libraryItemId, story.createdAt);
   }
 
-  const recorded = new Set(data.recordings.map((r) => r.itemId));
+  const recorded = new Set(
+    data.recordings.filter((r) => r.quality >= 0.4).map((r) => r.itemId),
+  );
 
+  /*
+   * A recorded item wins outright, not just as a tiebreak.
+   *
+   * The old order put never-sent ahead of recorded, so a parent who had
+   * recorded seven of twenty-two items got an unrecorded one almost every
+   * night — the device narrator, on the one feature the whole app is sold on.
+   * Rotating through what they actually read means their real voice every
+   * night, and the rotation widens on its own as they record more.
+   *
+   * Unrecorded items are still reachable: they are what the pool falls back
+   * to before anything has been recorded at all.
+   */
   return [...pool].sort((a, b) => {
-    // Never-sent first, then oldest; a recorded version wins a tie.
-    const sentA = lastSent.get(a.id) ?? 0;
-    const sentB = lastSent.get(b.id) ?? 0;
-    if (sentA !== sentB) return sentA - sentB;
-    return Number(recorded.has(b.id)) - Number(recorded.has(a.id));
+    const hasA = recorded.has(a.id);
+    const hasB = recorded.has(b.id);
+    if (hasA !== hasB) return hasA ? -1 : 1;
+
+    // Within the same group: never-sent first, then longest ago.
+    return (lastSent.get(a.id) ?? 0) - (lastSent.get(b.id) ?? 0);
   })[0];
 }
 

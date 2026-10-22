@@ -234,95 +234,124 @@ test('reset attempts are rate limited harder than logins', async () => {
 });
 
 /* ------------------------------------------------------------------
-   Signing in with the security answers.
-
-   This is now the credential the app actually sends: there is no password
-   field anywhere in the UI. A password is still accepted so an account made
-   by an older build keeps working, but these cover the path a real user
-   takes.
+   A password is required, and email confirmation.
    ------------------------------------------------------------------ */
 
-test('an account can be created with no password at all', async () => {
+test('an account cannot be created without a password', async () => {
   const res = await post('/auth/signup', {
     name: 'Nopass Parent',
     email: 'nopass@example.com',
     questions: QUESTIONS,
   });
-  assert.equal(res.status, 201, JSON.stringify(res.body));
-  assert.ok(res.body.token, 'a session should come back');
+  assert.equal(res.status, 400, JSON.stringify(res.body));
+  assert.match(res.body.error, /password/i);
 });
 
-test('both correct answers sign that account in', async () => {
-  const res = await post('/auth/login', {
-    email: 'nopass@example.com',
-    answers: ['Rufus', 'Maple Street'],
+test('an account created with a password signs in with it', async () => {
+  const made = await post('/auth/signup', {
+    name: 'Verify Parent',
+    email: 'verify@example.com',
+    password: PASSWORD,
+    questions: QUESTIONS,
   });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+
+  const res = await post('/auth/login', { email: 'verify@example.com', password: PASSWORD });
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.ok(res.body.token);
 });
 
-test('answers are matched loosely enough for a tired parent', async () => {
-  const res = await post('/auth/login', {
-    email: 'nopass@example.com',
-    answers: ['  rufus ', 'maple street'],
+test('a new account starts unverified and gets a confirmation link', async () => {
+  const made = await post('/auth/signup', {
+    name: 'Link Parent',
+    email: 'link@example.com',
+    password: PASSWORD,
+    questions: QUESTIONS,
   });
-  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(made.status, 201);
+  assert.equal(made.body.parent.emailVerified, false);
+  // No mail provider is configured in tests, so the link comes back rather
+  // than the server claiming it sent something.
+  assert.equal(made.body.verification.sent, false);
+  assert.equal(made.body.verification.mailConfigured, false);
+  assert.match(made.body.verification.link, /#\/verify\?parent=par_[a-z0-9]+&token=[a-f0-9]{64}/);
 });
 
-test('one right answer and one wrong is refused', async () => {
-  const res = await post('/auth/login', {
-    email: 'nopass@example.com',
-    answers: ['Rufus', 'Oak Street'],
+test('the confirmation link verifies the address, and is idempotent', async () => {
+  const made = await post('/auth/signup', {
+    name: 'Confirm Parent',
+    email: 'confirm@example.com',
+    password: PASSWORD,
+    questions: QUESTIONS,
   });
-  assert.equal(res.status, 401);
-  assert.ok(!res.body.token);
+  const url = new URL(made.body.verification.link.replace('#/verify?', 'verify?'), 'http://x/');
+  const parent = url.searchParams.get('parent');
+  const token = url.searchParams.get('token');
+
+  const first = await post('/auth/verify-email', { parent, token });
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  assert.equal(first.body.verified, true);
+
+  // Tapping the link again must read as success, not an error.
+  const second = await post('/auth/verify-email', { parent, token });
+  assert.equal(second.status, 200, JSON.stringify(second.body));
+  assert.equal(second.body.verified, true);
 });
 
-test('answers in the wrong order are refused', async () => {
-  const res = await post('/auth/login', {
-    email: 'nopass@example.com',
-    answers: ['Maple Street', 'Rufus'],
+test('a forged confirmation token is refused', async () => {
+  const made = await post('/auth/signup', {
+    name: 'Forge Parent',
+    email: 'forge@example.com',
+    password: PASSWORD,
+    questions: QUESTIONS,
   });
-  assert.equal(res.status, 401);
+  const url = new URL(made.body.verification.link.replace('#/verify?', 'verify?'), 'http://x/');
+  const parent = url.searchParams.get('parent');
+
+  const res = await post('/auth/verify-email', { parent, token: 'f'.repeat(64) });
+  assert.equal(res.status, 400);
+  assert.ok(!res.body.verified);
 });
 
-test('an empty answer array cannot walk in', async () => {
-  const res = await post('/auth/login', { email: 'nopass@example.com', answers: [] });
-  assert.equal(res.status, 401);
+test("one account's token cannot verify another account", async () => {
+  const a = await post('/auth/signup', {
+    name: 'A', email: 'cross-a@example.com', password: PASSWORD, questions: QUESTIONS,
+  });
+  const b = await post('/auth/signup', {
+    name: 'B', email: 'cross-b@example.com', password: PASSWORD, questions: QUESTIONS,
+  });
+  const tokenA = new URL(a.body.verification.link.replace('#/verify?', 'verify?'), 'http://x/')
+    .searchParams.get('token');
+  const parentB = new URL(b.body.verification.link.replace('#/verify?', 'verify?'), 'http://x/')
+    .searchParams.get('parent');
+
+  const res = await post('/auth/verify-email', { parent: parentB, token: tokenA });
+  assert.equal(res.status, 400);
 });
 
-test('an account with no password cannot be entered with an empty password', async () => {
-  // The row stores NULL password columns. Sending nothing must not match them.
+test('verifying needs both halves of the link', async () => {
+  for (const body of [{}, { parent: 'par_x' }, { token: 'a'.repeat(64) }]) {
+    const res = await post('/auth/verify-email', body);
+    assert.equal(res.status, 400, JSON.stringify(body));
+  }
+});
+
+test('an empty password cannot sign in to any account', async () => {
   for (const body of [
-    { email: 'nopass@example.com', password: '' },
-    { email: 'nopass@example.com' },
-    { email: 'nopass@example.com', pin: '' },
+    { email: 'verify@example.com', password: '' },
+    { email: 'verify@example.com' },
+    { email: 'verify@example.com', pin: '' },
   ]) {
     const res = await post('/auth/login', body);
     assert.equal(res.status, 401, `${JSON.stringify(body)} -> ${JSON.stringify(res.body)}`);
   }
 });
 
-test('answers for one account do not open another', async () => {
-  await post('/auth/signup', {
-    name: 'Other Parent',
-    email: 'other@example.com',
-    questions: [
-      { question: 'What was the name of your first pet?', answer: 'Biscuit' },
-      { question: 'What street did you live on when you were eight?', answer: 'Elm Road' },
-    ],
-  });
-  const res = await post('/auth/login', {
-    email: 'other@example.com',
-    answers: ['Rufus', 'Maple Street'],
-  });
-  assert.equal(res.status, 401);
-});
-
 test('signing up still refuses a single question', async () => {
   const res = await post('/auth/signup', {
     name: 'Half Parent',
     email: 'half@example.com',
+    password: PASSWORD,
     questions: [QUESTIONS[0]],
   });
   assert.equal(res.status, 400);
@@ -331,22 +360,16 @@ test('signing up still refuses a single question', async () => {
 test('the sign-in failure does not reveal whether an email exists', async () => {
   // Both addresses must be untouched: the rate limiter is keyed per email and
   // runs before the row lookup, so an address that has already been hammered
-  // answers 429 whether or not it exists. Comparing a used address against a
-  // fresh one measures the limiter, not the leak.
+  // answers 429 whether or not it exists.
   await post('/auth/signup', {
     name: 'Fresh Parent',
     email: 'fresh-known@example.com',
+    password: PASSWORD,
     questions: QUESTIONS,
   });
 
-  const known = await post('/auth/login', {
-    email: 'fresh-known@example.com',
-    answers: ['wrong', 'wrong'],
-  });
-  const unknown = await post('/auth/login', {
-    email: 'fresh-unknown@example.com',
-    answers: ['wrong', 'wrong'],
-  });
+  const known = await post('/auth/login', { email: 'fresh-known@example.com', password: 'wrong-wrong-wrong' });
+  const unknown = await post('/auth/login', { email: 'fresh-unknown@example.com', password: 'wrong-wrong-wrong' });
 
   assert.equal(known.status, 401, JSON.stringify(known.body));
   assert.equal(unknown.status, known.status);
@@ -360,12 +383,9 @@ test('the rate limiter applies to an email that does not exist', async () => {
   for (let i = 0; i < 12; i++) {
     const res = await post('/auth/login', {
       email: 'never-registered@example.com',
-      answers: ['nope', 'nope'],
+      password: 'nope-nope-nope',
     });
-    if (res.status === 429) {
-      sawLimit = true;
-      break;
-    }
+    if (res.status === 429) { sawLimit = true; break; }
   }
   assert.ok(sawLimit, 'an unknown email should be rate limited too');
 });

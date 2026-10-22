@@ -1,55 +1,44 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { Field, TopBar, useToast } from '../../components/ui';
-import { normaliseAnswer } from '../../lib/crypto';
-import { MIN_ANSWER_LENGTH } from '../../data/securityQuestions';
+import { Field, PasswordInput, TopBar, useToast } from '../../components/ui';
 
 /**
  * Getting back in.
  *
- * There is no password. An account on this device is one tap away, because the
- * data is already here and asking a tired parent to retype something at 9pm
- * protects nothing — the parent/child boundary is the child's own PIN. The two
- * security answers are for a different phone, or a second account on this one.
+ * The accounts on this phone are listed by name and email. Guessing which
+ * address you signed up with is the single most common way to be locked out of
+ * a local account, and the app already knows the answer — there is no reason
+ * to make a parent remember it. Picking one fills the email in; the password
+ * is still required.
  */
 export default function SignIn() {
   const navigate = useNavigate();
-  const { signInParent, continueAsParent, localParents, recoveryQuestions } = useApp();
+  const { signInParent, localParents } = useApp();
   const toast = useToast();
 
   const accounts = localParents();
   const [email, setEmail] = useState(accounts[0]?.email ?? '');
-  const [answers, setAnswers] = useState(['', '']);
-  const [askingQuestions, setAskingQuestions] = useState(accounts.length === 0);
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const questions = useMemo(() => recoveryQuestions(email) ?? [], [email, recoveryQuestions]);
+  // Only one account on the phone is the overwhelmingly common case, and then
+  // the picker is noise.
+  const [picking, setPicking] = useState(accounts.length > 1);
 
-  const enter = async (parentId: string) => {
-    setBusy(true);
-    try {
-      await continueAsParent(parentId);
-      navigate('/p', { replace: true });
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not open that account.');
-    } finally {
-      setBusy(false);
-    }
-  };
+  useEffect(() => {
+    if (accounts.length === 1) setEmail(accounts[0].email);
+  }, [accounts]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (answers.some((a) => normaliseAnswer(a).length < MIN_ANSWER_LENGTH)) {
-      return toast('Both answers are needed.');
-    }
     setBusy(true);
     try {
-      await signInParent(email, answers);
+      await signInParent(email, password);
       navigate('/p', { replace: true });
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Could not sign in.');
-      setAnswers(['', '']);
+      setPassword('');
     } finally {
       setBusy(false);
     }
@@ -59,86 +48,75 @@ export default function SignIn() {
     <div className="screen">
       <TopBar title="Welcome back" onBack={() => navigate('/welcome')} />
 
-      {accounts.length > 0 && !askingQuestions && (
+      {picking && accounts.length > 0 && (
         <div className="card stack">
-          <h3>Tap your name to carry on</h3>
+          <h3>Which account?</h3>
           {accounts.map((a) => (
             <button
               key={a.id}
-              className="btn btn--block btn--lg"
-              disabled={busy}
-              onClick={() => void enter(a.id)}
+              className="btn btn--soft btn--block"
+              onClick={() => {
+                setEmail(a.email);
+                setPicking(false);
+              }}
             >
-              {a.name}
+              {a.name} — {a.email}
             </button>
           ))}
-          <p className="muted" style={{ textAlign: 'center' }}>
-            Your recordings and stories are already on this phone.
-          </p>
-          <button
-            className="btn btn--ghost btn--block btn--sm"
-            onClick={() => setAskingQuestions(true)}
-          >
-            Use my email and security questions instead
-          </button>
         </div>
       )}
 
-      {askingQuestions && (
-        <>
-          <form className="card stack" onSubmit={submit}>
-            <Field label="Email">
-              <input
-                id="signin-email"
-                className="input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                autoCapitalize="none"
-                required
-              />
-            </Field>
-
-            {questions.length >= 2 ? (
-              questions.map((q, i) => (
-                <Field key={i} label={q}>
-                  <input
-                    id={`signin-answer-${i}`}
-                    className="input"
-                    value={answers[i] ?? ''}
-                    onChange={(e) =>
-                      setAnswers((prev) => prev.map((a, j) => (j === i ? e.target.value : a)))
-                    }
-                    placeholder="Your answer"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                  />
-                </Field>
-              ))
-            ) : (
-              <p className="muted">
-                Type the email you signed up with. Your two questions appear here once it
-                matches an account on this phone.
-              </p>
-            )}
-
-            <button className="btn btn--block" disabled={busy || questions.length < 2}>
-              {busy ? 'Checking…' : 'Sign in'}
-            </button>
-          </form>
-
-          {accounts.length > 0 && (
-            <button
-              className="btn btn--ghost btn--block btn--sm"
-              style={{ marginTop: 12 }}
-              onClick={() => setAskingQuestions(false)}
-            >
-              Back
-            </button>
-          )}
-        </>
+      {!picking && (
+        <form className="card stack" onSubmit={submit}>
+          <Field label="Email">
+            <input
+              id="signin-email"
+              className="input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoCapitalize="none"
+              required
+            />
+          </Field>
+          <Field label="Password">
+            <PasswordInput id="signin-password" value={password} onChange={setPassword} autoFocus />
+          </Field>
+          <button className="btn btn--block" disabled={busy || !password}>
+            {busy ? 'Checking…' : 'Sign in'}
+          </button>
+        </form>
       )}
+
+      {/*
+        The accounts actually on this phone, shown plainly. A parent who signed
+        up with a different address than the one they are typing gets told so
+        here, instead of "that email and password do not match" over and over.
+      */}
+      {accounts.length > 0 && (
+        <div className="card">
+          <div className="section-label" style={{ marginTop: 0 }}>
+            On this phone
+          </div>
+          {accounts.map((a) => (
+            <p key={a.id} className="muted" style={{ marginTop: 4 }}>
+              {a.name} — <strong>{a.email}</strong>
+            </p>
+          ))}
+          <p className="muted" style={{ marginTop: 8 }}>
+            Only these can sign in here. Your recordings belong to whichever one you used.
+          </p>
+        </div>
+      )}
+
+      <button
+        className="btn btn--ghost btn--block btn--sm"
+        style={{ marginTop: 12 }}
+        onClick={() => navigate('/forgot')}
+      >
+        I forgot my password
+      </button>
 
       <button
         className="btn btn--soft btn--block btn--sm"

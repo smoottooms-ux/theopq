@@ -21,7 +21,7 @@ import type {
   VoiceProfile,
 } from '../types';
 import { id, joinCode } from './ids';
-import { hashAnswer, verifyAnswer } from './crypto';
+import { hashAnswer, hashSecret, verifyAnswer, verifySecret } from './crypto';
 import { emptyData, loadData, loadSession, saveData, saveSession } from './storage';
 
 interface Ctx {
@@ -36,13 +36,14 @@ interface Ctx {
   signUpParent(input: {
     name: string;
     email: string;
+    password: string;
     questions: { question: string; answer: string }[];
   }): Promise<Parent>;
-  /**
-   * Email plus the two answers. There is no password to get wrong, and
-   * nothing leaves the device to check them.
-   */
-  signInParent(email: string, answers: string[]): Promise<Parent>;
+  signInParent(email: string, password: string): Promise<Parent>;
+  /** Verifies both answers and sets a new password. */
+  resetPassword(email: string, answers: string[], newPassword: string): Promise<void>;
+  /** Marks the address confirmed once the parent completes the email step. */
+  markEmailVerified(parentId: string): void;
   /** The questions for an email, so the sign-in screen can ask them. */
   recoveryQuestions(email: string): string[] | null;
   /** Accounts already on this device, for one-tap re-entry. */
@@ -112,7 +113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signUpParent: Ctx['signUpParent'] = useCallback(
-    async ({ name, email, questions }) => {
+    async ({ name, email, password, questions }) => {
       const normalised = email.trim().toLowerCase();
       if (data.parents.some((p) => p.email === normalised)) {
         throw new Error('There is already an account with that email on this device.');
@@ -133,6 +134,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         familyId: family.id,
         name: name.trim(),
         email: normalised,
+        password: await hashSecret(password),
+        emailVerified: false,
         securityQuestions: await Promise.all(
           questions.map(async (q) => ({
             question: q.question.trim(),
@@ -154,25 +157,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const signInParent: Ctx['signInParent'] = useCallback(
-    async (email, answers) => {
+    async (email, password) => {
       const normalised = email.trim().toLowerCase();
       const parent = data.parents.find((p) => p.email === normalised);
 
       // Same message either way, so this never confirms which emails exist.
-      const wrong = new Error('That email and those answers do not match.');
-      if (!parent?.securityQuestions?.length) throw wrong;
+      const wrong = new Error('That email and password do not match.');
+      if (!parent) throw wrong;
 
-      // Both are checked before reporting, so a wrong first answer does not
-      // reveal whether the second one was right.
-      const results = await Promise.all(
-        parent.securityQuestions.map((q, i) => verifyAnswer(answers[i] ?? '', q.answer)),
-      );
-      if (!results.every(Boolean)) throw wrong;
+      const ok = parent.password
+        ? await verifySecret(password, parent.password)
+        : // An account from before passwords existed gets in with its old
+          // code once, and the UI then makes it set a real password.
+          !!parent.pin && parent.pin === password;
+      if (!ok) throw wrong;
 
       await setActiveSession({ role: 'parent', userId: parent.id });
       return parent;
     },
     [data.parents, setActiveSession],
+  );
+
+  const markEmailVerified: Ctx['markEmailVerified'] = useCallback(
+    (parentId) => {
+      update((d) => {
+        const i = d.parents.findIndex((p) => p.id === parentId);
+        if (i >= 0) d.parents[i] = { ...d.parents[i], emailVerified: true };
+      });
+    },
+    [update],
   );
 
   const localParents: Ctx['localParents'] = useCallback(
@@ -221,6 +234,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [data.parents],
   );
+
+  const resetPassword: Ctx['resetPassword'] = useCallback(
+    async (email, answers, newPassword) => {
+      const parent = data.parents.find((p) => p.email === email.trim().toLowerCase());
+      if (!parent?.securityQuestions?.length) {
+        throw new Error('That account cannot be recovered on this device.');
+      }
+      if (!(await verifyRecoveryAnswers(email, answers))) {
+        throw new Error('Those answers do not match. Both have to be right.');
+      }
+
+      const password = await hashSecret(newPassword);
+      update((d) => {
+        const i = d.parents.findIndex((p) => p.id === parent.id);
+        // The old code is dropped: a recovered account should not still be
+        // reachable with whatever four digits it used to have.
+        if (i >= 0) d.parents[i] = { ...d.parents[i], password, pin: undefined };
+      });
+    },
+    [data.parents, update, verifyRecoveryAnswers],
+  );
+
 
   const signInChild: Ctx['signInChild'] = useCallback(
     async (childId, pin) => {
@@ -340,6 +375,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       verifyRecoveryAnswers,
       localParents,
       continueAsParent,
+      resetPassword,
+      markEmailVerified,
       signInChild,
       signOut,
       addChild,
@@ -352,7 +389,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       data, session, loading, parent, child, update, signUpParent, signInParent,
-      recoveryQuestions, verifyRecoveryAnswers, localParents, continueAsParent, signInChild, signOut,
+      recoveryQuestions, verifyRecoveryAnswers, localParents, continueAsParent,
+      resetPassword, markEmailVerified, signInChild, signOut,
       addChild, upsertVoice,
       addStory, patchStory, addReply, recordSession, setSettings,
     ],

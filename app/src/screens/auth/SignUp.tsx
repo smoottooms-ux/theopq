@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { Field, TopBar, useToast } from '../../components/ui';
-import { normaliseAnswer } from '../../lib/crypto';
+import { Field, PasswordInput, TopBar, useToast } from '../../components/ui';
+import { checkPassword, normaliseAnswer } from '../../lib/crypto';
 import {
   CUSTOM_QUESTION,
   MIN_ANSWER_LENGTH,
@@ -22,7 +22,15 @@ export default function SignUp() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const strength = useMemo(
+    () => checkPassword(password, [name, email.split('@')[0]]),
+    [password, name, email],
+  );
 
   const [questions, setQuestions] = useState<QuestionChoice[]>([
     { selected: SECURITY_QUESTIONS[0], custom: '', answer: '' },
@@ -37,6 +45,15 @@ export default function SignUp() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+
+    // Typed twice rather than mailed a link. Nothing in this build can send
+    // an email, and claiming to have sent one would be a lie; catching the
+    // typo is what the step is actually for, so that is what it does.
+    if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      return toast('The two emails do not match. Check for a typo.');
+    }
+    if (!strength.ok) return toast(strength.message);
+    if (password !== confirm) return toast('Those passwords do not match.');
 
     for (const [i, q] of questions.entries()) {
       if (!resolved(q)) return toast(`Question ${i + 1} needs to say something.`);
@@ -53,6 +70,7 @@ export default function SignUp() {
       await signUpParent({
         name,
         email,
+        password,
         questions: questions.map((q) => ({ question: resolved(q), answer: q.answer })),
       });
       navigate('/p', { replace: true });
@@ -84,7 +102,7 @@ export default function SignUp() {
             />
           </Field>
 
-          <Field label="Email" hint="Used to sign back in. Nothing is ever sent to it.">
+          <Field label="Email" hint="This is how you sign back in. Get it right.">
             <input
               id="signup-email"
               className="input"
@@ -97,13 +115,48 @@ export default function SignUp() {
               required
             />
           </Field>
+
+          <Field label="Type your email again" hint="A typo here locks you out of your own account.">
+            <input
+              id="signup-email-confirm"
+              className="input"
+              type="email"
+              value={confirmEmail}
+              onChange={(e) => setConfirmEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              autoCapitalize="none"
+              required
+            />
+          </Field>
         </div>
 
-        <div className="section-label">How you get back in</div>
+        <div className="card stack">
+          <Field label="Password">
+            <PasswordInput
+              id="signup-password"
+              value={password}
+              onChange={setPassword}
+              autoComplete="new-password"
+              strength={strength}
+            />
+          </Field>
+          <Field label="Confirm password">
+            <PasswordInput
+              id="signup-confirm"
+              value={confirm}
+              onChange={setConfirm}
+              autoComplete="new-password"
+              placeholder="Type it again"
+            />
+          </Field>
+        </div>
+
+        <div className="section-label">If you forget your password</div>
         <div className="card stack">
           <p className="muted">
-            No password. Two questions only you can answer instead — they are what let you
-            back in on a new phone, so pick things you will still know in two years.
+            Two questions only you can answer. There is no email reset — nothing leaves this
+            device — so pick things you will still know in two years.
           </p>
 
           {questions.map((q, i) => (
@@ -151,12 +204,15 @@ export default function SignUp() {
           </p>
         </div>
 
-        <button className="btn btn--block btn--lg" disabled={busy}>
+        <button
+          className="btn btn--block btn--lg"
+          disabled={busy || !password || !email.trim() || !confirmEmail.trim()}
+        >
           {busy ? 'Creating…' : 'Create account'}
         </button>
 
         <p className="muted" style={{ textAlign: 'center' }}>
-          Your answers are scrambled before they are saved. Nobody can read them back,
+          Your password and answers are scrambled before they are saved. Nobody can read them back,
           including us.
         </p>
       </form>

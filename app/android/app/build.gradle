@@ -18,6 +18,27 @@ android {
         }
     }
     signingConfigs {
+        /*
+         * A fixed debug key, committed on purpose.
+         *
+         * Without this, Gradle signs debug builds with whatever
+         * ~/.android/debug.keystore the machine happens to have. Every CI run
+         * is a fresh machine, so every APK got a different signature, and
+         * Android refuses to install an update signed by a different key —
+         * which forced an uninstall for each new build and wiped the parent's
+         * recordings every single time.
+         *
+         * This is not a secret and is not a release key: the password is the
+         * conventional "android", and it signs debug builds only. Keeping it
+         * in the repo is what makes an install-over-the-top possible, so a
+         * parent's voice recordings survive an update.
+         */
+        debug {
+            storeFile file("../keystore/storystation-debug.keystore")
+            storePassword "android"
+            keyAlias "storystationdebug"
+            keyPassword "android"
+        }
         release {
             def keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
             if (keystorePath) {
@@ -30,6 +51,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Explicit, so this never silently falls back to the machine's
+            // own throwaway debug key.
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

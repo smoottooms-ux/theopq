@@ -1,10 +1,12 @@
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
 import { Field, TopBar, useToast } from '../../components/ui';
 import { requestPermission, scheduleNightly } from '../../lib/notifications';
 import { audioStore } from '../../lib/storage';
-import { HAS_HOSTED_BACKEND, SUPPORT_EMAIL } from '../../lib/config';
+import { restoreBackup, writeBackup } from '../../lib/backup';
+import { SUPPORT_EMAIL } from '../../lib/config';
 
 export default function SettingsScreen() {
   const navigate = useNavigate();
@@ -22,6 +24,42 @@ export default function SettingsScreen() {
       }
     }
     setSettings({ notificationsEnabled: next });
+  };
+
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [backingUp, setBackingUp] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [backupNote, setBackupNote] = useState<string | null>(null);
+
+  const backUp = async () => {
+    setBackingUp(true);
+    setBackupNote(null);
+    try {
+      const out = await writeBackup();
+      const mb = (out.bytes / 1_048_576).toFixed(1);
+      setBackupNote(
+        `Saved ${out.recordings} recording${out.recordings === 1 ? '' : 's'} (${mb} MB) to ${out.location}`,
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not write the backup.');
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  const restore = async (file: File) => {
+    setRestoring(true);
+    try {
+      const out = await restoreBackup(await file.text());
+      toast(`Restored ${out.recordings} recordings and ${out.children} children. Reopening…`);
+      // The store holds data in memory, so a restore only takes effect once
+      // the app reads it back.
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Could not read that backup.');
+    } finally {
+      setRestoring(false);
+    }
   };
 
   const wipe = async () => {
@@ -95,27 +133,49 @@ export default function SettingsScreen() {
         </Field>
       </div>
 
-      {!HAS_HOSTED_BACKEND && (
-        <>
-          <div className="section-label">Self-hosted</div>
-          <div className="card stack">
-            <Field
-              label="Server address"
-              hint="This build has no server baked in, so point it at your own."
-            >
-              <input
-                className="input"
-                value={data.settings.serverUrl ?? ''}
-                onChange={(e) => setSettings({ serverUrl: e.target.value.trim() || undefined })}
-                placeholder="https://…"
-                autoCapitalize="none"
-                autoCorrect="off"
-                inputMode="url"
-              />
-            </Field>
-          </div>
-        </>
-      )}
+      {/*
+        There was a "Server address" box here. It asked a parent to supply
+        something no parent has, and typing anything into it produced a JSON
+        parse error from the app's own index.html. Gone.
+      */}
+
+      <div className="section-label">Your recordings</div>
+      <div className="card stack">
+        <p className="soft">
+          One file with everything in it: your recordings, your children, every story
+          you have been sent. Keep a copy somewhere safe.
+        </p>
+        <button className="btn btn--block" disabled={backingUp} onClick={backUp}>
+          {backingUp ? 'Packing it up…' : 'Back up everything'}
+        </button>
+        {backupNote && (
+          <p className="muted" style={{ color: 'var(--good)' }}>
+            {backupNote}
+          </p>
+        )}
+
+        <button
+          className="btn btn--soft btn--block"
+          disabled={restoring}
+          onClick={() => fileInput.current?.click()}
+        >
+          {restoring ? 'Restoring…' : 'Restore from a backup'}
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void restore(file);
+          }}
+        />
+        <p className="muted">
+          Restoring replaces what is on this phone with what is in the file.
+        </p>
+      </div>
 
       <div className="section-label">This device</div>
       <div className="card stack">
