@@ -310,6 +310,33 @@ function speechChunks(text: string): { text: string; offset: number }[] {
 }
 
 /**
+ * Unlocks speech synthesis while the tap is still live.
+ *
+ * iOS Safari only lets speechSynthesis start from inside a user gesture, and
+ * the check for whether a voice exists is asynchronous — so by the time
+ * readAloud or readSong got round to speaking, the gesture had expired and
+ * nothing came out. Saying one empty utterance synchronously, before any
+ * await, claims the permission for the rest of the session.
+ *
+ * Call it from the click handler, not from the async function it starts.
+ * Harmless everywhere else: an empty utterance is silent.
+ */
+export function primeSpeech(): void {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  if (primed) return;
+  primed = true;
+  try {
+    const silent = new SpeechSynthesisUtterance('');
+    silent.volume = 0;
+    window.speechSynthesis.speak(silent);
+  } catch {
+    // An engine that refuses an empty utterance is no worse off.
+  }
+}
+
+let primed = false;
+
+/**
  * Whether the installed app can use the phone's own speech engine.
  *
  * This is the path that matters on a real phone. Android's System WebView

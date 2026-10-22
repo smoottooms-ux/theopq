@@ -1,0 +1,115 @@
+name: Build iOS app
+
+# What this can and cannot do, so nobody is misled by a green tick:
+#
+#   CAN   — prove the iOS app compiles, on every push, on a macOS runner.
+#   CAN   — produce an unsigned .app for the simulator.
+#   CANNOT — put it on a physical iPhone. Apple requires a signed build from a
+#            paid Apple Developer account, delivered via TestFlight or an
+#            ad-hoc profile with the device's UDID registered. There is no
+#            sideloading on iOS; nothing in this workflow changes that.
+#
+# When the Apple Developer account exists, add the secrets named at the bottom
+# and the archive + TestFlight upload steps light up.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ios:
+    name: Compile for iOS
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    env:
+      HAS_SIGNING: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Type check
+        working-directory: app
+        run: npx tsc -b --noEmit
+
+      - name: Build web bundle
+        working-directory: app
+        run: npm run build
+
+      - name: Sync Capacitor
+        working-directory: app
+        run: npx cap sync ios
+
+      # iOS does not deny the microphone without a usage description, it kills
+      # the app. Android taught this lesson already; this is the same guard.
+      - name: Verify the microphone will not crash the app
+        working-directory: app
+        run: |
+          set -euo pipefail
+          plist=ios/App/App/Info.plist
+
+          if ! grep -rq 'getUserMedia' src; then
+            echo "App does not record audio — skipping."
+            exit 0
+          fi
+
+          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$plist" >/dev/null 2>&1 || {
+            echo "::error::The app calls getUserMedia but Info.plist has no NSMicrophoneUsageDescription. iOS terminates an app that touches the microphone without one — it would crash the first time a parent tapped record."
+            exit 1
+          }
+
+          text=$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$plist")
+          [ ${#text} -ge 20 ] || {
+            echo "::error::NSMicrophoneUsageDescription is too short to pass App Review, and it is shown to the user verbatim."
+            exit 1
+          }
+          echo "✓ microphone usage description present"
+
+      - name: Verify the app has something to launch
+        working-directory: app/ios
+        run: |
+          set -euo pipefail
+          test -d App/App.xcodeproj || { echo "::error::No Xcode project — cap sync did not run."; exit 1; }
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' App/App/Info.plist
+          echo "✓ Xcode project present"
+
+      # Capacitor 8 wires its plugins through Swift Package Manager, not
+      # CocoaPods, so there is no Podfile and no workspace — xcodebuild is
+      # pointed at the project and resolves packages itself.
+      - name: Resolve Swift packages
+        working-directory: app/ios/App
+        run: xcodebuild -project App.xcodeproj -scheme App -resolvePackageDependencies
+
+      # Unsigned simulator build: this is what can be verified without an
+      # Apple Developer account. It catches real compile and link failures.
+      - name: Compile for the simulator
+        working-directory: app/ios/App
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build \
+            | tail -40
+
+      - name: Say what would be needed to put this on a phone
+        if: env.HAS_SIGNING != 'true'
+        run: |
+          echo "::notice::Compiled successfully. Installing on a physical iPhone needs a paid Apple Developer account. Add APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD, APPLE_PROVISIONING_PROFILE_BASE64, APPLE_TEAM_ID, APPSTORE_ISSUER_ID, APPSTORE_KEY_ID and APPSTORE_PRIVATE_KEY as repository secrets, and the archive and TestFlight upload steps will run."

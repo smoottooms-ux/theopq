@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { ReadAlongBook } from '../../components/ReadAlongBook';
-import { estimateScript, readAloud, readSong, type ReaderHandle } from '../../lib/readalong';
+import {
+  estimateScript,
+  primeSpeech,
+  readAloud,
+  readSong,
+  type ReaderHandle,
+} from '../../lib/readalong';
 import { songGrid } from '../../lib/song';
 import { libraryItem } from '../../data/library';
 import { Empty, TopBar, useToast } from '../../components/ui';
@@ -195,6 +201,8 @@ export default function Player() {
       stopEverything();
       return;
     }
+    // iOS only grants speech from inside the tap itself.
+    primeSpeech();
     setFinished(false);
     if (url) playFile();
     else speakFrom();

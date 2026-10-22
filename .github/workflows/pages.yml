@@ -1,0 +1,102 @@
+name: Deploy web app
+
+# Why this exists: an iPhone cannot sideload an app. Apple has no equivalent of
+# tapping an APK — getting a native build onto a physical iPhone needs a paid
+# Apple Developer account and either TestFlight or a registered device UDID.
+#
+# A PWA needs none of that. Safari installs this from a URL to the home screen,
+# where it runs full screen with its own icon and works offline. It is how
+# someone on an iPhone can test the app today.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A half-finished deploy is worse than the previous one staying up.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the web app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Type check
+        working-directory: app
+        run: npx tsc -b --noEmit
+
+      - name: Song timing tests
+        working-directory: app
+        run: npm test
+
+      - name: Build
+        working-directory: app
+        run: npm run build
+
+      # vite is configured with base './', so the bundle works from a
+      # subdirectory without a rebuild. This only has to exist because GitHub
+      # Pages serves 404.html for unknown paths and the app is a single page.
+      - name: Add a 404 that serves the app
+        run: cp app/dist/index.html app/dist/404.html
+
+      - name: Check the PWA can actually install
+        run: |
+          set -euo pipefail
+          cd app/dist
+
+          test -f manifest.webmanifest || { echo "::error::No web manifest — iOS cannot add this to the home screen."; exit 1; }
+          test -f sw.js || { echo "::error::No service worker — the app would not work offline."; exit 1; }
+
+          for field in name short_name start_url display icons; do
+            grep -q "\"$field\"" manifest.webmanifest || {
+              echo "::error::manifest.webmanifest is missing \"$field\", which iOS needs to install it."
+              exit 1
+            }
+          done
+
+          grep -q 'apple-mobile-web-app-capable' index.html || {
+            echo "::error::index.html lost the apple-mobile-web-app-capable meta, so iOS would open this in a browser tab instead of as an app."
+            exit 1
+          }
+          grep -q 'apple-touch-icon' index.html || {
+            echo "::error::No apple-touch-icon, so the home-screen icon would be a screenshot of the page."
+            exit 1
+          }
+
+          echo "✓ installable on iOS"
+
+      - name: Upload
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+
+  deploy:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -14,6 +14,7 @@ import {
 } from '../../lib/audio';
 import {
   estimateScript,
+  primeSpeech,
   readAloud,
   readSong,
   type ReadAlongScript,
@@ -151,6 +152,8 @@ export default function RecordingStudio() {
   };
 
   const listen = () => {
+    // Claims iOS's speech permission before any await, or Safari swallows it.
+    primeSpeech();
     setStage('listening');
     setPage(0);
     speakThrough(() => setStage('ready'));

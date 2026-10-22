@@ -6,6 +6,7 @@ import { IconPause, IconPlay, IconRefresh } from '../../components/Icons';
 import { ReadAlongBook } from '../../components/ReadAlongBook';
 import {
   estimateScript,
+  primeSpeech,
   readAloud,
   readSong,
   type ReadAlongScript,
@@ -179,6 +180,8 @@ export default function LibraryPlayer() {
 
   const toggle = () => {
     if (playing) return stop();
+    // iOS only grants speech from inside the tap itself.
+    primeSpeech();
     setPage(0);
     if (url) playRecording();
     else speak();

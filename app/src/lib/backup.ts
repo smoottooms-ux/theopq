@@ -111,14 +111,48 @@ export async function writeBackup(): Promise<BackupWritten> {
     };
   }
 
-  // Browser: hand it over as a download.
-  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const blob = new Blob([json], { type: 'application/json' });
+  const summary = { bytes: json.length, recordings: Object.keys(backup.audio).length };
+
+  /*
+   * iOS first, via the share sheet.
+   *
+   * An <a download> does nothing in a standalone PWA on iOS — the tap is
+   * swallowed and the parent is left thinking they have a backup when they
+   * have nothing. That matters more here than on any other platform, because
+   * Safari evicts site storage for an app that has not been opened in a while,
+   * so an iPhone is exactly where a recording is most likely to disappear.
+   *
+   * The share sheet is the supported route: it offers Save to Files, AirDrop,
+   * Mail, whatever they have.
+   */
+  const file = new File([blob], name, { type: 'application/json' });
+  const sharer = navigator as Navigator & {
+    canShare?: (data: { files: File[] }) => boolean;
+    share?: (data: { files: File[]; title?: string }) => Promise<void>;
+  };
+
+  if (sharer.share && sharer.canShare?.({ files: [file] })) {
+    try {
+      await sharer.share({ files: [file], title: name });
+      return { location: 'wherever you saved it', ...summary };
+    } catch (err) {
+      // A cancelled share is a decision, not a failure — do not then dump a
+      // download the parent did not ask for.
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Backup cancelled.');
+      }
+      // Anything else: fall through to the download below.
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  return { location: name, bytes: json.length, recordings: Object.keys(backup.audio).length };
+  return { location: name, ...summary };
 }
 
 export interface RestoreResult {

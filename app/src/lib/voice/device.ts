@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
+import { primeSpeech } from '../readalong';
 import type { LiveHandle, SynthInput, VoiceProvider } from './types';
 
 /**
@@ -20,6 +21,10 @@ export const deviceVoice: VoiceProvider = {
   blockedReason: () => null,
 
   async speakLive({ text, style }: SynthInput): Promise<LiveHandle> {
+    // First statement, before any await: iOS Safari only grants speech from
+    // inside the user gesture that started this call.
+    primeSpeech();
+
     const rate = style === 'bedtime' ? 0.85 : 1;
 
     if (Capacitor.isNativePlatform()) {

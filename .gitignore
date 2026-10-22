@@ -29,3 +29,12 @@ app/android/app/src/main/assets/public/
 
 # Scratch
 *.tmp.mjs
+
+# iOS build output. The Xcode project itself is committed — CI needs it — but
+# Pods are restored by `pod install` and DerivedData is a build artifact.
+app/ios/App/Pods/
+app/ios/App/Podfile.lock
+app/ios/App/build/
+app/ios/DerivedData/
+app/ios/App/App/public/
+**/xcuserdata/
