@@ -301,6 +301,21 @@ jobs:
 
             ### 4. Tap **Install**, then **Open**
 
+            **Already have Story Station? Do NOT uninstall it.** Installing
+            this straight over the top keeps your recordings. Uninstalling
+            deletes them.
+
+            Builds up to #15 were each signed with a different throwaway key,
+            so they could not update one another and an uninstall was forced
+            every time — which is what wiped recordings. From build #16 the
+            key is fixed, so every build from here installs over the last one
+            and your voice stays put.
+
+            ### 5. Back up your recordings
+            **Settings → Your recordings → Back up everything.** It writes one
+            file to your Documents folder with every recording in it. Do this
+            once you have recorded anything you would be annoyed to lose.
+
             ---
 
             # ▶️ What to do first
@@ -328,6 +343,8 @@ jobs:
             - **Microphone not working?** Allow microphone access when asked. If
               you said no the first time, it's in Android Settings → Apps →
               Story Station → Permissions → Microphone.
-            - **Updating from an older build and something still looks wrong?**
-              Uninstall first, then install this one. A fresh install clears any
-              permission state left over from a build that was broken.
+            - **"App not installed" when updating?** That means the copy on
+              your phone came from build #15 or earlier, which used a different
+              signing key. Back up first if you can still open it
+              (**Settings → Your recordings → Back up everything**), then
+              uninstall, install this, and restore the file.
