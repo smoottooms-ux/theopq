@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { LevelMeter, MicBlockedNotice, TopBar, useToast } from '../../components/ui';
@@ -15,10 +15,12 @@ import {
 import {
   estimateScript,
   readAloud,
+  readSong,
   type ReadAlongScript,
   type ReaderHandle,
   type ReaderMode,
 } from '../../lib/readalong';
+import { songGrid } from '../../lib/song';
 import { libraryItem, scriptFor } from '../../data/library';
 import { audioStore } from '../../lib/storage';
 import { id } from '../../lib/ids';
@@ -50,6 +52,8 @@ export default function RecordingStudio() {
   const [playhead, setPlayhead] = useState(0);
   const [headphones, setHeadphones] = useState(false);
   const [guide, setGuide] = useState(false);
+  /** Musical clock position while a song's guide track plays. */
+  const [guideTime, setGuideTime] = useState<number | null>(null);
 
   const recorder = useRef<Recorder | null>(null);
   const tick = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -57,8 +61,26 @@ export default function RecordingStudio() {
   const [readerMode, setReaderMode] = useState<ReaderMode | null>(null);
   const preview = useRef<HTMLAudioElement | null>(null);
 
+  /**
+   * A song is timed to its meter, everything else to its prose.
+   *
+   * The prose estimate weights words by letter count, which for a lyric is
+   * nonsense: "A B C D E F G" and "Now I know my A B C." are the same length
+   * in the tune but wildly different as text. The musical grid puts a
+   * syllable on a beat instead, so the highlight keeps time.
+   */
+  const isSong = !!item && (item.kind === 'song' || !!item.tune);
+
+  const grid = useMemo(
+    () =>
+      item && isSong
+        ? songGrid(item.pages.map((p) => p.text), item.duration)
+        : null,
+    [item, isSong],
+  );
+
   const script: ReadAlongScript | null = item
-    ? estimateScript(item.pages.map((p) => p.text), item.duration)
+    ? (grid?.script ?? estimateScript(item.pages.map((p) => p.text), item.duration))
     : null;
 
   const stopEverything = useCallback(() => {
@@ -88,6 +110,28 @@ export default function RecordingStudio() {
    * Used both for "hear it first" and as the guide track while recording.
    */
   const speakThrough = (onDone?: () => void) => {
+    // A song runs on its own clock: the clock drives the highlight and starts
+    // each phrase on the beat, so the tempo cannot be set by how fast the
+    // speech engine happens to rattle through a row of letters.
+    if (grid) {
+      setGuideTime(0);
+      void readSong({
+        grid,
+        onMode: setReaderMode,
+        // Page turning is left to the book, which honours a manual turn for a
+        // few seconds. Forcing the page from here too would drag a parent
+        // straight back whenever they tapped ahead.
+        onTime: setGuideTime,
+        onDone: () => {
+          setGuideTime(null);
+          onDone?.();
+        },
+      }).then((handle) => {
+        speech.current = handle;
+      });
+      return;
+    }
+
     void readAloud({
       script,
       text: scriptFor(item),
@@ -115,6 +159,7 @@ export default function RecordingStudio() {
   const stopListening = () => {
     stopEverything();
     setActiveWord(-1);
+    setGuideTime(null);
     setStage('ready');
   };
 
@@ -227,8 +272,10 @@ export default function RecordingStudio() {
         script={script}
         seed={item.id}
         arts={item.pages.map((p) => p.art)}
-        activeWord={stage === 'review' ? undefined : activeWord}
-        currentTime={stage === 'review' ? playhead : undefined}
+        activeWord={stage === 'review' || guideTime !== null ? undefined : activeWord}
+        currentTime={
+          stage === 'review' ? playhead : guideTime !== null ? guideTime : undefined
+        }
         page={page}
         onPageChange={setPage}
         tapToTurn

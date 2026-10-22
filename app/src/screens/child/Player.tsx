@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { ReadAlongBook } from '../../components/ReadAlongBook';
-import { estimateScript, readAloud, type ReaderHandle } from '../../lib/readalong';
+import { estimateScript, readAloud, readSong, type ReaderHandle } from '../../lib/readalong';
+import { songGrid } from '../../lib/song';
+import { libraryItem } from '../../data/library';
 import { Empty, TopBar, useToast } from '../../components/ui';
 import { IconBack, IconMic, IconPause, IconPlay, IconRefresh } from '../../components/Icons';
 import { audioUrl, releaseAudioUrl } from '../../lib/storage';
@@ -29,17 +31,37 @@ export default function Player() {
 
   const [currentTime, setCurrentTime] = useState(0);
   const [activeWord, setActiveWord] = useState<number | undefined>(undefined);
+  /** Musical clock position while a song is sung by the device. */
+  const [sungTime, setSungTime] = useState<number | null>(null);
   const readerRef = useRef<ReaderHandle | null>(null);
   const raf = useRef(0);
+
+  /*
+   * A song delivered by auto-pilot is still a song.
+   *
+   * Without this the nightly story got the prose estimate, so a child heard
+   * the lyric read at whatever pace the engine felt like — the same mess a
+   * parent hit on the record screen.
+   */
+  const grid = useMemo(() => {
+    if (!story?.libraryItemId) return null;
+    const item = libraryItem(story.libraryItemId);
+    if (!item || (item.kind !== 'song' && !item.tune)) return null;
+    return songGrid(
+      story.pages.map((p) => p.text),
+      story.durationEstimate || item.duration,
+    );
+  }, [story]);
 
   /** Word timings for the highlight. Paced by the recording when there is one. */
   const script = useMemo(() => {
     if (!story) return null;
+    if (grid) return grid.script;
     return estimateScript(
       story.pages.map((p) => p.text),
       story.durationEstimate || 120,
     );
-  }, [story]);
+  }, [story, grid]);
 
   /**
    * The audio to play.
@@ -75,6 +97,7 @@ export default function Player() {
     readerRef.current = null;
     setPlaying(false);
     setActiveWord(undefined);
+    setSungTime(null);
   }, []);
 
   useEffect(() => () => stopEverything(), [stopEverything]);
@@ -132,6 +155,22 @@ export default function Player() {
     if (!story || !script) return;
     setPlaying(true);
 
+    if (grid) {
+      void readSong({
+        grid,
+        onTime: setSungTime,
+        onDone: () => {
+          setPlaying(false);
+          setFinished(true);
+          setSungTime(null);
+          markPlayed();
+        },
+      }).then((handle) => {
+        readerRef.current = handle;
+      });
+      return;
+    }
+
     void readAloud({
       script,
       text: story.pages.map((p) => p.text).join('\n\n'),
@@ -149,7 +188,7 @@ export default function Player() {
     }).then((handle) => {
       readerRef.current = handle;
     });
-  }, [markPlayed, script, story]);
+  }, [grid, markPlayed, script, story]);
 
   const toggle = () => {
     if (playing) {
@@ -201,8 +240,8 @@ export default function Player() {
           script={script!}
           seed={story.id}
           arts={story.pages.map((p) => p.art)}
-          currentTime={url ? currentTime : undefined}
-          activeWord={url ? undefined : activeWord}
+          currentTime={url ? currentTime : (sungTime ?? undefined)}
+          activeWord={url || sungTime !== null ? undefined : activeWord}
           page={page}
           onPageChange={setPage}
           onSeekToPage={

@@ -7,10 +7,12 @@ import { ReadAlongBook } from '../../components/ReadAlongBook';
 import {
   estimateScript,
   readAloud,
+  readSong,
   type ReadAlongScript,
   type ReaderHandle,
   type ReaderMode,
 } from '../../lib/readalong';
+import { songGrid } from '../../lib/song';
 import { libraryItem, scriptFor } from '../../data/library';
 import { chooseVoice } from '../../lib/playback';
 import { audioUrl, releaseAudioUrl } from '../../lib/storage';
@@ -40,19 +42,36 @@ export default function LibraryPlayer() {
   const reader = useRef<ReaderHandle | null>(null);
   const raf = useRef(0);
   const [mode, setMode] = useState<ReaderMode | null>(null);
+  /** Musical clock position while a song is sung by the device. */
+  const [sungTime, setSungTime] = useState<number | null>(null);
 
   const voice = useMemo(
     () => (item ? chooseVoice(data, item) : null),
     [data, item],
   );
 
-  // A recorded take has its own length; the written estimate is the fallback.
+  const isSong = !!item && (item.kind === 'song' || !!item.tune);
+
+  /*
+   * A recorded take has its own length; the written estimate is the fallback.
+   *
+   * A song gets the musical grid either way. When a grown-up sings it they
+   * sing in time, so a syllable on a beat tracks their take far better than
+   * weighting words by how many letters they happen to contain.
+   */
+  const grid = useMemo(() => {
+    if (!item || !isSong) return null;
+    const duration = voice?.kind === 'recorded' ? voice.recording.duration : item.duration;
+    return songGrid(item.pages.map((p) => p.text), duration);
+  }, [item, isSong, voice]);
+
   const script: ReadAlongScript | null = useMemo(() => {
     if (!item) return null;
+    if (grid) return grid.script;
     const duration =
       voice?.kind === 'recorded' ? voice.recording.duration : item.duration;
     return estimateScript(item.pages.map((p) => p.text), duration);
-  }, [item, voice]);
+  }, [item, voice, grid]);
 
   useEffect(() => {
     if (voice?.kind !== 'recorded') return setUrl(null);
@@ -121,6 +140,24 @@ export default function LibraryPlayer() {
     setPlaying(true);
     setFinished(false);
 
+    // A song keeps its own time, so the tempo is the tune's and not whatever
+    // pace the speech engine takes a row of letters at.
+    if (grid) {
+      void readSong({
+        grid,
+        onMode: setMode,
+        onTime: setSungTime,
+        onDone: () => {
+          setPlaying(false);
+          setFinished(true);
+          setSungTime(null);
+        },
+      }).then((handle) => {
+        reader.current = handle;
+      });
+      return;
+    }
+
     void readAloud({
       script,
       text: scriptFor(item),
@@ -170,8 +207,8 @@ export default function LibraryPlayer() {
         script={script}
         seed={item.id}
         arts={item.pages.map((p) => p.art)}
-        currentTime={url ? currentTime : undefined}
-        activeWord={url ? undefined : activeWord}
+        currentTime={url ? currentTime : (sungTime ?? undefined)}
+        activeWord={url || sungTime !== null ? undefined : activeWord}
         page={page}
         onPageChange={setPage}
         onSeekToPage={

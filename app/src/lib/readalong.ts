@@ -18,6 +18,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
+import { syllablesInLine, type SongGrid } from './song';
 
 export interface WordTiming {
   /** Index into the flattened word list. */
@@ -191,6 +192,13 @@ export function wordAtOffset(script: ReadAlongScript, charIndex: number): number
 }
 
 /** Splits a page into renderable tokens, preserving the line breaks. */
+/** Which page a moment in the script falls on. */
+export function pageAt(script: ReadAlongScript, seconds: number): number | undefined {
+  const index = wordAt(script, seconds);
+  if (index < 0) return script.words[0]?.page ?? undefined;
+  return script.words[index]?.page;
+}
+
 export function tokenisePage(
   script: ReadAlongScript,
   page: number,
@@ -457,6 +465,110 @@ export async function readAloud(options: ReadOptions): Promise<ReaderHandle> {
       window.clearTimeout(watchdog);
       fellBack?.stop();
       synth.cancel();
+    },
+  };
+}
+
+/* ------------------------------------------------------------------
+   Songs
+   ------------------------------------------------------------------ */
+
+/**
+ * Roughly how many syllables a speech engine says per second at rate 1.0.
+ *
+ * Used only to pick a per-phrase rate, so being approximately right is
+ * enough; the clock, not the engine, decides when each phrase begins.
+ */
+const ENGINE_SYLLABLES_PER_SECOND = 3.2;
+
+export interface SongReaderHandle {
+  stop(): void;
+  mode: ReaderMode;
+}
+
+export interface ReadSongOptions {
+  grid: SongGrid;
+  /** Fed the elapsed musical time, for the highlight. */
+  onTime(seconds: number): void;
+  onDone(): void;
+  onMode?(mode: ReaderMode): void;
+}
+
+/**
+ * Plays a song to its own clock.
+ *
+ * The difference from readAloud is which side keeps time. There, the engine
+ * speaks and the highlight chases its word events — which for a lyric means
+ * seven letters flung out in a second, then a crawl through a sentence, then
+ * off again. Here a steady clock owns the tempo: it drives the highlight
+ * directly and starts each phrase on its beat.
+ *
+ * Each phrase is a separate utterance, scheduled rather than queued. The
+ * engine finishes a phrase well before its slot is up, so there is a rest
+ * before the next one lands — which is how a nursery tune is actually sung,
+ * and it means the voice can never drift behind the highlight however slow
+ * the device is.
+ *
+ * With no speech engine at all this still runs: the words light up in time
+ * and a parent sings along to them, which is the thing they needed.
+ */
+export async function readSong(options: ReadSongOptions): Promise<SongReaderHandle> {
+  const { grid, onTime, onDone, onMode } = options;
+  const canSpeak = await nativeSpeechAvailable();
+  const webSpeech = !canSpeak && (await speechAvailable());
+
+  onMode?.(canSpeak || webSpeech ? 'voice' : 'silent');
+
+  let stopped = false;
+  let raf = 0;
+  let next = 0;
+  const startedAt = performance.now();
+
+  const speak = (text: string, seconds: number, syllables: number) => {
+    // Fit the phrase inside its slot: a long line is said faster than a short
+    // one, which is what meter means.
+    const wanted = syllables / Math.max(0.3, seconds);
+    const rate = Math.min(1.2, Math.max(0.5, wanted / ENGINE_SYLLABLES_PER_SECOND));
+
+    if (canSpeak) {
+      void TextToSpeech.speak({ text, rate, lang: 'en-US' }).catch(() => undefined);
+      return;
+    }
+    if (webSpeech) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = rate;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const tick = () => {
+    if (stopped) return;
+    const elapsed = (performance.now() - startedAt) / 1000;
+    onTime(elapsed);
+
+    while (next < grid.lines.length && elapsed >= grid.lines[next].start) {
+      const line = grid.lines[next];
+      speak(line.text, line.duration, syllablesInLine(line.text));
+      next++;
+    }
+
+    if (elapsed >= grid.script.duration) {
+      stopped = true;
+      onDone();
+      return;
+    }
+    raf = requestAnimationFrame(tick);
+  };
+
+  raf = requestAnimationFrame(tick);
+
+  return {
+    mode: canSpeak || webSpeech ? 'voice' : 'silent',
+    stop: () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      if (canSpeak) void TextToSpeech.stop().catch(() => undefined);
+      else if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
     },
   };
 }
