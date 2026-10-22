@@ -19,6 +19,7 @@ export function ReadAlongBook({
   page,
   onPageChange,
   onSeekToPage,
+  tapToTurn,
   playing,
 }: {
   script: ReadAlongScript;
@@ -33,6 +34,15 @@ export function ReadAlongBook({
   onPageChange: (page: number) => void;
   /** Called when a reader taps a word to jump the audio there. */
   onSeekToPage?: (seconds: number) => void;
+  /**
+   * Tapping the picture or the words turns to the next page.
+   *
+   * For recording, where a parent is holding the phone and reading out loud:
+   * the page dots are a 8px target, which is not something you hit one-handed
+   * mid-sentence. The whole page becomes the button instead, and it wraps at
+   * the end so re-reading a verse costs one tap rather than a journey back.
+   */
+  tapToTurn?: boolean;
   playing: boolean;
 }) {
   const [manual, setManual] = useState(false);
@@ -64,10 +74,30 @@ export function ReadAlongBook({
 
   const tokens = tokenisePage(script, page);
   const art = arts[page] ?? 'moon';
+  const lastPage = script.pages.length - 1;
+
+  const tapTurn = () => turnByHand(page >= lastPage ? 0 : page + 1);
 
   return (
     <div>
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div
+        className="card"
+        style={{ padding: 0, overflow: 'hidden', cursor: tapToTurn ? 'pointer' : undefined }}
+        onClick={tapToTurn ? tapTurn : undefined}
+        role={tapToTurn ? 'button' : undefined}
+        tabIndex={tapToTurn ? 0 : undefined}
+        aria-label={tapToTurn ? 'Next page' : undefined}
+        onKeyDown={
+          tapToTurn
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  tapTurn();
+                }
+              }
+            : undefined
+        }
+      >
         <StoryArt art={art} seed={seed} />
 
         <p
@@ -86,7 +116,12 @@ export function ReadAlongBook({
             return (
               <span key={token.index}>
                 <span
-                  onClick={() => onSeekToPage?.(script.words[token.index]?.start ?? 0)}
+                  onClick={(e) => {
+                    if (!onSeekToPage) return;
+                    // Otherwise this would seek AND turn the page.
+                    e.stopPropagation();
+                    onSeekToPage(script.words[token.index]?.start ?? 0);
+                  }}
                   style={{
                     // The active word is lifted with a warm highlight; words
                     // already read stay fully legible but step back a little,
@@ -108,6 +143,12 @@ export function ReadAlongBook({
           })}
         </p>
       </div>
+
+      {tapToTurn && (
+        <p className="muted" style={{ textAlign: 'center', marginTop: 10 }}>
+          Tap the page to turn it
+        </p>
+      )}
 
       <div className="row" style={{ marginTop: 14, justifyContent: 'center', gap: 6 }}>
         {script.pages.map((_, i) => (

@@ -119,7 +119,7 @@ interface QuestionInput {
 /** Both questions must be present, distinct, and have answers worth having. */
 function validateQuestions(raw: unknown): { question: string; answer: string }[] | string {
   if (!Array.isArray(raw) || raw.length < 2) {
-    return 'Two security questions are required so a lost password can be recovered.';
+    return 'Two security questions are required — they are how you get back in.';
   }
 
   const parsed = (raw as QuestionInput[]).slice(0, 2).map((q) => ({
@@ -139,12 +139,16 @@ function validateQuestions(raw: unknown): { question: string; answer: string }[]
 
 app.post('/auth/signup', (req, res) => {
   const { name, email, password, questions, familyName } = req.body ?? {};
-  if (!name || !email || !password) {
-    return res.status(400).json({ error: 'Name, email and a password are required.' });
+  if (!name || !email) {
+    return res.status(400).json({ error: 'A name and an email are required.' });
   }
 
-  const weak = checkPasswordStrength(String(password));
-  if (weak) return res.status(400).json({ error: weak });
+  // A password is optional now. The app signs in with the two security
+  // answers instead, so demanding one here would reject its own client.
+  if (password) {
+    const weak = checkPasswordStrength(String(password));
+    if (weak) return res.status(400).json({ error: weak });
+  }
 
   const security = validateQuestions(questions);
   if (typeof security === 'string') return res.status(400).json({ error: security });
@@ -156,7 +160,9 @@ app.post('/auth/signup', (req, res) => {
   const now = Date.now();
   const familyId = id('fam');
   const parentId = id('par');
-  const { hash, salt } = hashSecret(String(password));
+  // No password means no password columns: a row with an empty hash must not
+  // be reachable by sending an empty string.
+  const secret = password ? hashSecret(String(password)) : null;
 
   db.transaction(() => {
     db.prepare(`INSERT INTO families (id, name, join_code, created_at) VALUES (?, ?, ?, ?)`).run(
@@ -171,7 +177,15 @@ app.post('/auth/signup', (req, res) => {
       `INSERT INTO parents
          (id, family_id, name, email, pin_hash, pin_salt, password_hash, password_salt, created_at)
        VALUES (?, ?, ?, ?, '', '', ?, ?, ?)`,
-    ).run(parentId, familyId, String(name).trim(), normalised, hash, salt, now);
+    ).run(
+      parentId,
+      familyId,
+      String(name).trim(),
+      normalised,
+      secret?.hash ?? null,
+      secret?.salt ?? null,
+      now,
+    );
 
     for (const [position, q] of security.entries()) {
       const answer = hashSecret(normaliseAnswer(q.answer));
@@ -194,9 +208,17 @@ app.post('/auth/signup', (req, res) => {
   });
 });
 
+/**
+ * Signing in.
+ *
+ * The two security answers are the credential the app sends. A password is
+ * still accepted so an account made by an older build keeps working, but
+ * nothing asks for one any more.
+ */
 app.post('/auth/login', (req, res) => {
-  const { email, password, pin } = req.body ?? {};
+  const { email, password, pin, answers } = req.body ?? {};
   const secret = String(password ?? pin ?? '');
+  const sentAnswers = Array.isArray(answers) ? answers : null;
   const normalised = String(email ?? '').trim().toLowerCase();
 
   const wait = checkRateLimit(`login:${normalised}`);
@@ -220,16 +242,38 @@ app.post('/auth/login', (req, res) => {
       }
     | undefined;
 
-  // An account created before passwords existed still signs in with its PIN.
-  const valid =
-    !!row &&
-    (row.password_hash && row.password_salt
-      ? verifySecret(secret, row.password_hash, row.password_salt)
-      : !!row.pin_hash && verifyPin(secret, row.pin_hash, row.pin_salt));
+  const byAnswers = (): boolean => {
+    if (!row || !sentAnswers) return false;
+    const stored = db
+      .prepare(
+        `SELECT position, answer_hash, answer_salt FROM security_answers
+         WHERE parent_id = ? ORDER BY position`,
+      )
+      .all(row.id) as { position: number; answer_hash: string; answer_salt: string }[];
+    if (stored.length < 2) return false;
+
+    // Every answer is checked before reporting, so a wrong first answer does
+    // not reveal whether the second one was right.
+    const results = stored.map((q, i) =>
+      verifySecret(normaliseAnswer(String(sentAnswers[i] ?? '')), q.answer_hash, q.answer_salt),
+    );
+    return results.every(Boolean);
+  };
+
+  const byPassword = (): boolean => {
+    if (!row || !secret) return false;
+    if (row.password_hash && row.password_salt) {
+      return verifySecret(secret, row.password_hash, row.password_salt);
+    }
+    // An account created before passwords existed still signs in with its PIN.
+    return !!row.pin_hash && verifyPin(secret, row.pin_hash, row.pin_salt);
+  };
+
+  const valid = !!row && (sentAnswers ? byAnswers() : byPassword());
 
   // Same response either way, so the endpoint does not confirm which emails exist.
   if (!row || !valid) {
-    return res.status(401).json({ error: 'Email or password is wrong.' });
+    return res.status(401).json({ error: 'That email and those answers do not match.' });
   }
 
   clearRateLimit(`login:${normalised}`);

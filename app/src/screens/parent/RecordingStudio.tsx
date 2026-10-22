@@ -231,6 +231,7 @@ export default function RecordingStudio() {
         currentTime={stage === 'review' ? playhead : undefined}
         page={page}
         onPageChange={setPage}
+        tapToTurn
         playing={recording || listening}
       />
 

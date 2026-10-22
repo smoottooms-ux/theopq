@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
+import { HAS_HOSTED_BACKEND } from '../../lib/config';
 import { Field, LevelMeter, MicBlockedNotice, Sheet, TopBar, useToast } from '../../components/ui';
 import { IconCheck, IconMic, IconPlay, IconRefresh, IconTrash, IconX } from '../../components/Icons';
 import {
@@ -100,37 +101,77 @@ export default function VoiceStudio() {
   };
 
   const usable = takes.filter((t) => t.result.quality >= 0.4);
-  const averageQuality = usable.length
-    ? usable.reduce((n, t) => n + t.result.quality, 0) / usable.length
+
+  /*
+   * Songs the parent already recorded count as samples.
+   *
+   * They were being ignored, so "Build my voice from 7 recordings" led to a
+   * screen demanding four more takes — asking a parent who had just recorded
+   * seven songs to record again, which is the opposite of what the app
+   * promises. A take is a take: these are the same voice, read aloud at
+   * length, and better training material than a four-second prompt.
+   */
+  const fromLibrary = data.recordings.filter(
+    (r) => r.parentId === parent.id && r.quality >= 0.4,
+  );
+  const sampleCount = usable.length + fromLibrary.length;
+
+  const qualities = [...usable.map((t) => t.result.quality), ...fromLibrary.map((r) => r.quality)];
+  const averageQuality = qualities.length
+    ? qualities.reduce((n, q) => n + q, 0) / qualities.length
     : 0;
 
   const submit = async () => {
     if (!consentChecked || consentName.trim().toLowerCase() !== parent.name.trim().toLowerCase()) {
       return toast(`Type "${parent.name}" exactly to confirm it is your voice.`);
     }
-    if (!cloud) {
-      return toast('Sign in to your Story Station account first — voice building happens there.');
-    }
-
     setSubmitting(true);
     const profile: VoiceProfile = {
       id: existing?.id ?? id('voice'),
       parentId: parent.id,
       provider: 'managed',
       status: 'processing',
-      samples: usable.map((t) => ({
-        id: id('smp'),
-        promptId: t.promptId,
-        duration: t.result.duration,
-        quality: t.result.quality,
-        createdAt: Date.now(),
-      })),
+      samples: [
+        ...usable.map((t) => ({
+          id: id('smp'),
+          promptId: t.promptId,
+          duration: t.result.duration,
+          quality: t.result.quality,
+          createdAt: Date.now(),
+        })),
+        ...fromLibrary.map((r) => ({
+          id: id('smp'),
+          promptId: r.itemId,
+          duration: r.duration,
+          quality: r.quality,
+          createdAt: r.createdAt,
+        })),
+      ],
       consentName: parent.name,
       consentAt: Date.now(),
       updatedAt: Date.now(),
     };
     upsertVoice(profile);
     setConsentOpen(false);
+
+    /*
+     * No cloning backend on this build.
+     *
+     * The samples are kept on the device and the profile is marked 'enrolled',
+     * which is the truthful state: enrolment is finished and nothing has to be
+     * recorded again, but no clone exists yet. Deliberately NOT 'ready' —
+     * chooseVoice() treats 'ready' as "a copy of this parent exists" and would
+     * start labelling device narration as their voice, which is the one lie
+     * this app must never tell.
+     */
+    if (!HAS_HOSTED_BACKEND || !cloud) {
+      upsertVoice({ ...profile, provider: 'recorded', status: 'enrolled', updatedAt: Date.now() });
+      setStage(null);
+      setSubmitting(false);
+      setTakes([]);
+      toast(`${sampleCount} recordings saved. Your child hears your real voice on every one of them.`);
+      return;
+    }
 
     try {
       // Upload take by take, so a dropped connection costs one recording
@@ -235,7 +276,10 @@ export default function VoiceStudio() {
 
   /* ------------------------- enrollment ------------------------- */
 
-  const blocked = !cloud
+  // With no backend there is nothing to sign in to, so nothing to block on.
+  const blocked = !HAS_HOSTED_BACKEND
+    ? null
+    : !cloud
     ? 'Sign in to your Story Station account to build your voice.'
     : account && !account.capabilities.voiceCloning
       ? 'Voice building is temporarily unavailable. Your recordings are safe on this device.'
@@ -247,7 +291,7 @@ export default function VoiceStudio() {
     <div className="screen">
       <TopBar
         title="Teach it your voice"
-        subtitle={`${usable.length} of ${ENROLL_PROMPTS.length} good takes`}
+        subtitle={`${sampleCount} usable recording${sampleCount === 1 ? '' : 's'}`}
         onBack={() => navigate('/p')}
       />
 
@@ -287,7 +331,15 @@ export default function VoiceStudio() {
         </ul>
       </div>
 
-      <div className="section-label">Read these out loud</div>
+      <div className="section-label">
+        {sampleCount >= MIN_SAMPLES ? 'Optional — a few more, if you want' : 'Read these out loud'}
+      </div>
+      {sampleCount >= MIN_SAMPLES && (
+        <p className="muted" style={{ marginTop: -4 }}>
+          You already have enough. These sharpen it, but you can go straight to the button at
+          the bottom.
+        </p>
+      )}
 
       <div className="stack">
         {ENROLL_PROMPTS.map((prompt, i) => {
@@ -382,8 +434,8 @@ export default function VoiceStudio() {
           <div className="bar__fill" style={{ width: `${Math.round(averageQuality * 100)}%` }} />
         </div>
         <p className="muted" style={{ marginTop: 10 }}>
-          {usable.length < MIN_SAMPLES
-            ? `Record at least ${MIN_SAMPLES} usable takes.`
+          {sampleCount < MIN_SAMPLES
+            ? `${MIN_SAMPLES - sampleCount} more usable recording${MIN_SAMPLES - sampleCount === 1 ? '' : 's'} needed.`
             : averageQuality < 0.65
               ? 'This will work, but it will sound a bit off. Redoing the weak ones is worth it.'
               : 'That is clean audio. This will sound like you.'}
@@ -393,7 +445,7 @@ export default function VoiceStudio() {
       <button
         className="btn btn--block btn--lg"
         style={{ marginTop: 14 }}
-        disabled={usable.length < MIN_SAMPLES || !!activePrompt || !!blocked}
+        disabled={sampleCount < MIN_SAMPLES || !!activePrompt || !!blocked}
         onClick={() => {
           setConsentName('');
           setConsentChecked(false);
@@ -405,9 +457,17 @@ export default function VoiceStudio() {
 
       <Sheet open={consentOpen} onClose={() => setConsentOpen(false)} title="One last thing">
         <div className="stack">
+          {/*
+            The consent has to describe what actually happens. On a build with
+            no backend nothing is uploaded and nothing is cloned, so the
+            hosted wording — "sent to Story Station", "deleted once it is
+            built" — would be a straightforward falsehood in a consent form,
+            which is the worst possible place for one.
+          */}
           <p className="soft">
-            You are about to create a synthetic copy of a human voice. That is a serious thing, so
-            we make you say it out loud, in writing.
+            {HAS_HOSTED_BACKEND
+              ? 'You are about to create a synthetic copy of a human voice. That is a serious thing, so we make you say it out loud, in writing.'
+              : 'This confirms the recordings are yours. Nothing is uploaded and no synthetic copy is made — they stay on this phone.'}
           </p>
 
           <label className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
@@ -418,9 +478,10 @@ export default function VoiceStudio() {
               style={{ width: 22, height: 22, marginTop: 2, flex: 'none' }}
             />
             <span className="soft">
-              This is <strong>my own voice</strong>. I am not cloning anyone else. I understand the
-              recordings are sent to Story Station to build the model, that they are deleted once it is
-              built, and that I can remove the voice at any time.
+              This is <strong>my own voice</strong>. I am not cloning anyone else.{' '}
+              {HAS_HOSTED_BACKEND
+                ? 'I understand the recordings are sent to Story Station to build the model, that they are deleted once it is built, and that I can remove the voice at any time.'
+                : 'I understand they stay on this device, and that I can delete them at any time.'}
             </span>
           </label>
 
@@ -434,7 +495,12 @@ export default function VoiceStudio() {
           </Field>
 
           <button className="btn btn--block btn--lg" onClick={submit} disabled={submitting}>
-            {stage ?? (submitting ? 'Building…' : 'I agree — build it')}
+            {stage ??
+              (submitting
+                ? 'Saving…'
+                : HAS_HOSTED_BACKEND
+                  ? 'I agree — build it'
+                  : 'I agree — save my voice')}
           </button>
         </div>
       </Sheet>

@@ -2,17 +2,17 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
-import { Field, PasswordInput, TopBar, useToast } from '../../components/ui';
+import { Field, TopBar, useToast } from '../../components/ui';
 import {
   SecurityQuestionFields,
   emptyQuestions,
   resolveQuestion,
   type QuestionChoice,
 } from '../../components/SecurityQuestions';
-import { checkPassword, normaliseAnswer } from '../../lib/crypto';
+import { normaliseAnswer } from '../../lib/crypto';
 import { MIN_ANSWER_LENGTH } from '../../data/securityQuestions';
 import { IconCheck, IconRefresh } from '../../components/Icons';
-import { checkServer, cloudSignIn, cloudSignUp, defaultServerUrl, pushChild } from '../../lib/cloud';
+import { cloudSignIn, cloudSignUp, defaultServerUrl, pushChild } from '../../lib/cloud';
 import { HAS_HOSTED_BACKEND } from '../../lib/config';
 
 /**
@@ -24,29 +24,27 @@ import { HAS_HOSTED_BACKEND } from '../../lib/config';
  */
 export default function AccountScreen() {
   const navigate = useNavigate();
-  const { data, parent, setSettings } = useApp();
+  const { data, parent } = useApp();
   const { cloud, connected, account, syncing, lastSync, error, connect, disconnect, syncNow } =
     useCloud();
   const toast = useToast();
 
   const [mode, setMode] = useState<'signup' | 'signin'>('signup');
   const [email, setEmail] = useState(parent?.email ?? '');
-  const [password, setPassword] = useState('');
   const [questions, setQuestions] = useState<QuestionChoice[]>(emptyQuestions);
-  const [serverUrl, setServerUrl] = useState(data.settings.serverUrl ?? defaultServerUrl());
+  const [answers, setAnswers] = useState(['', '']);
   const [busy, setBusy] = useState(false);
 
-  const strength = useMemo(
-    () => checkPassword(password, [parent?.name ?? '', email.split('@')[0]]),
-    [password, parent, email],
+  /** The questions this account was created with, asked back on sign-in. */
+  const askedQuestions = useMemo(
+    () => data.parents.find((p) => p.email === email.trim().toLowerCase())?.securityQuestions ?? [],
+    [data.parents, email],
   );
 
   const submit = async () => {
     if (!parent) return;
-    const target = HAS_HOSTED_BACKEND ? defaultServerUrl() : serverUrl.trim();
 
     if (mode === 'signup') {
-      if (!strength.ok) return toast(strength.message);
       for (const [i, q] of questions.entries()) {
         if (!resolveQuestion(q)) return toast(`Question ${i + 1} needs to say something.`);
         if (normaliseAnswer(q.answer).length < MIN_ANSWER_LENGTH) {
@@ -58,29 +56,27 @@ export default function AccountScreen() {
       ) {
         return toast('Pick two different questions.');
       }
+    } else if (answers.some((a) => normaliseAnswer(a).length < MIN_ANSWER_LENGTH)) {
+      return toast('Both answers are needed.');
     }
 
     setBusy(true);
     try {
-      if (!HAS_HOSTED_BACKEND && !(await checkServer(target))) {
-        throw new Error('Cannot reach that address.');
-      }
+      const target = defaultServerUrl();
 
       const result =
         mode === 'signup'
           ? await cloudSignUp(target, {
               name: parent.name,
               email,
-              password,
               questions: questions.map((q) => ({
                 question: resolveQuestion(q),
                 answer: q.answer,
               })),
             })
-          : await cloudSignIn(target, email, password);
+          : await cloudSignIn(target, email, answers);
 
       connect(result.session);
-      if (!HAS_HOSTED_BACKEND) setSettings({ serverUrl: result.session.serverUrl });
 
       // Upload the children so their devices can pair straight away.
       for (const child of data.children) {
@@ -88,7 +84,7 @@ export default function AccountScreen() {
       }
 
       toast(`You're in. Family code: ${result.joinCode}`);
-      setPassword('');
+      setAnswers(['', '']);
       navigate('/p/plan');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Could not sign in.');
@@ -96,6 +92,60 @@ export default function AccountScreen() {
       setBusy(false);
     }
   };
+
+  /**
+   * A build with no server has nothing to sign in to, so it says so instead of
+   * showing a form that cannot work. This screen used to ask for a server
+   * address, which is a question no parent can answer, and submitting it
+   * produced a JSON parse error from the app's own index.html.
+   */
+  if (!HAS_HOSTED_BACKEND) {
+    return (
+      <div className="screen">
+        <TopBar title="Your account" onBack={() => navigate('/p/settings')} />
+
+        <div className="card">
+          <div className="avatar avatar--lg" style={{ margin: '0 auto 12px', color: 'var(--good)' }}>
+            <IconCheck size={36} />
+          </div>
+          <h2 style={{ textAlign: 'center' }}>No account needed</h2>
+          <p className="muted" style={{ marginTop: 8, textAlign: 'center' }}>
+            This copy of Story Station runs entirely on your phone. Your recordings, your
+            stories and your children never leave the device, and there is nothing to sign
+            in to.
+          </p>
+        </div>
+
+        <div className="card">
+          <h3>What works right now</h3>
+          <ul className="soft" style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.8 }}>
+            <li>Everything you record plays back in your real voice.</li>
+            <li>Every story is kept, week by week, forever.</li>
+            <li>Bedtime stories, lullabies, learning books and the games.</li>
+          </ul>
+        </div>
+
+        <div className="card">
+          <h3>Your family code</h3>
+          <p className="muted" style={{ marginTop: 6 }}>
+            Type this into your child's device, with their own 4-digit code, to pair it.
+          </p>
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 40,
+              letterSpacing: '0.18em',
+              textAlign: 'center',
+              margin: '16px 0 6px',
+              color: 'var(--accent)',
+            }}
+          >
+            {data.family?.joinCode ?? '——————'}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (connected && cloud) {
     return (
@@ -189,20 +239,6 @@ export default function AccountScreen() {
           </button>
         </div>
 
-        {!HAS_HOSTED_BACKEND && (
-          <Field label="Server address" hint="This build is self-hosted, so point it at your server.">
-            <input
-              className="input"
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              placeholder="https://…"
-              autoCapitalize="none"
-              autoCorrect="off"
-              inputMode="url"
-            />
-          </Field>
-        )}
-
         <Field label="Email">
           <input
             className="input"
@@ -214,38 +250,49 @@ export default function AccountScreen() {
           />
         </Field>
 
-        <Field label="Password">
-          <PasswordInput
-            id="account-password"
-            value={password}
-            onChange={setPassword}
-            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            strength={mode === 'signup' ? strength : null}
-          />
-        </Field>
-
-        {mode === 'signup' && (
+        {mode === 'signup' ? (
           <>
             <div className="section-label" style={{ marginTop: 4 }}>
-              If you forget it
+              How you get back in
             </div>
+            <p className="muted" style={{ marginTop: -4 }}>
+              Two questions only you can answer. There is no password to forget — these are
+              what let you in, so pick things you will still know in two years.
+            </p>
             <SecurityQuestionFields value={questions} onChange={setQuestions} idPrefix="account" />
+          </>
+        ) : (
+          <>
+            {askedQuestions.length >= 2 ? (
+              askedQuestions.map((q, i) => (
+                <Field key={i} label={q.question}>
+                  <input
+                    className="input"
+                    value={answers[i] ?? ''}
+                    onChange={(e) =>
+                      setAnswers((prev) => prev.map((a, j) => (j === i ? e.target.value : a)))
+                    }
+                    placeholder="Your answer"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                  />
+                </Field>
+              ))
+            ) : (
+              <p className="muted">
+                Type the email you signed up with and your two questions appear here.
+              </p>
+            )}
           </>
         )}
 
         <button
           className="btn btn--block btn--lg"
           onClick={submit}
-          disabled={busy || !password || !email.trim()}
+          disabled={busy || !email.trim()}
         >
           {busy ? 'One moment…' : mode === 'signup' ? 'Create account — free trial' : 'Sign in'}
         </button>
-
-        {mode === 'signin' && (
-          <button className="btn btn--ghost btn--block btn--sm" onClick={() => navigate('/forgot')}>
-            I forgot my password
-          </button>
-        )}
 
         {mode === 'signup' && (
           <p className="muted" style={{ textAlign: 'center' }}>

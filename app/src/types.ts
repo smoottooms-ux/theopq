@@ -22,13 +22,19 @@ export interface Parent {
   familyId: string;
   name: string;
   email: string;
-  password: StoredSecret;
-  /** Two questions, chosen by the parent, used to recover a lost password. */
+  /**
+   * Two questions the parent chose themselves. These ARE the credential: the
+   * app asks for them instead of a password, because a bedtime app that locks
+   * a tired parent out at 9pm has failed at the one job it has.
+   */
   securityQuestions: SecurityQuestion[];
   /**
-   * Legacy quick-unlock code from before accounts had passwords. Kept so an
-   * existing install can still get in once and set a password.
+   * Password hash from the builds that had one. No longer asked for, and never
+   * written again — kept only so an existing account keeps working rather
+   * than being treated as corrupt and dropped.
    */
+  password?: StoredSecret;
+  /** Older quick-unlock code, same reason. */
   pin?: string;
   role: 'parent';
   /** Free text the parent writes about their schedule, used to tune delivery. */
@@ -55,7 +61,22 @@ export interface Child {
   createdAt: number;
 }
 
-export type VoiceStatus = 'none' | 'enrolling' | 'processing' | 'ready' | 'failed';
+/**
+ * How far a parent's voice has got.
+ *
+ * 'enrolled' is the honest resting state for a build with no cloning backend:
+ * the samples are captured and kept on the device, and the app will train from
+ * them the moment a backend is configured — but nothing has been cloned yet,
+ * so narration must not claim to be in the parent's voice. Only 'ready' means
+ * a real clone exists.
+ */
+export type VoiceStatus =
+  | 'none'
+  | 'enrolling'
+  | 'enrolled'
+  | 'processing'
+  | 'ready'
+  | 'failed';
 
 export interface VoiceSample {
   id: string;

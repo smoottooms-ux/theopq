@@ -42,7 +42,41 @@ export function saveCloudSession(session: CloudSession | null): void {
 
 /** The hosted server wins; a self-hosted URL is only used when one is set. */
 function base(serverUrl: string): string {
-  return (serverUrl || API_URL).replace(/\/+$/, '');
+  const url = (serverUrl || API_URL).replace(/\/+$/, '');
+  if (!url) {
+    // With no server configured, a relative fetch resolves against the
+    // WebView's own origin and returns the app's index.html — so res.json()
+    // threw "Unexpected token '<'" and the parent saw a JSON error instead of
+    // being told the obvious thing: this build has no server to talk to.
+    throw new NoServerError(
+      'This copy of Story Station runs entirely on your phone — there is no account server to sign in to.',
+    );
+  }
+  return url;
+}
+
+/** Thrown when code reaches for a server that this build does not have. */
+export class NoServerError extends Error {}
+
+/**
+ * Reads a response body as JSON without ever throwing a parse error.
+ *
+ * A server that is down, misconfigured, or behind a captive portal answers
+ * with HTML. Letting res.json() throw turns that into "Unexpected token '<'",
+ * which tells a parent nothing and looks like the app is broken.
+ */
+async function readJson<T>(res: Response): Promise<T & { error?: string }> {
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) return {} as T & { error?: string };
+  try {
+    return JSON.parse(text) as T & { error?: string };
+  } catch {
+    return {
+      error: res.ok
+        ? 'The server sent something this app could not read. It may be the wrong address.'
+        : `The server returned an error (${res.status}).`,
+    } as T & { error?: string };
+  }
 }
 
 export function defaultServerUrl(): string {
@@ -64,7 +98,7 @@ async function request<T>(
 
   if (res.status === 401) throw new CloudAuthError('Your sync session expired. Sign in again.');
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string; upgrade?: boolean };
+    const body = await readJson<{ upgrade?: boolean }>(res);
     const error = new Error(body.error ?? `Server returned ${res.status}.`);
     // 402 means the family is out of quota; the UI offers an upgrade rather
     // than showing a dead end.
@@ -72,7 +106,7 @@ async function request<T>(
     throw error;
   }
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return (await readJson<T>(res)) as T;
 }
 
 export class CloudAuthError extends Error {}
@@ -109,7 +143,6 @@ export async function cloudSignUp(
   input: {
     name: string;
     email: string;
-    password: string;
     questions: { question: string; answer: string }[];
   },
 ): Promise<{ session: CloudSession; joinCode: string }> {
@@ -118,12 +151,11 @@ export async function cloudSignUp(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  const body = (await res.json()) as {
+  const body = await readJson<{
     token?: string;
-    error?: string;
     parent?: { id: string };
     family?: { join_code: string };
-  };
+  }>(res);
   if (!res.ok || !body.token) throw new Error(body.error ?? 'Could not create that account.');
 
   const session: CloudSession = {
@@ -140,20 +172,19 @@ export async function cloudSignUp(
 export async function cloudSignIn(
   serverUrl: string,
   email: string,
-  password: string,
+  answers: string[],
 ): Promise<{ session: CloudSession; joinCode: string }> {
   const res = await fetch(`${base(serverUrl)}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, answers }),
   });
-  const body = (await res.json()) as {
+  const body = await readJson<{
     token?: string;
-    error?: string;
     parent?: { id: string };
     family?: { join_code: string };
-  };
-  if (!res.ok || !body.token) throw new Error(body.error ?? 'Email or password is wrong.');
+  }>(res);
+  if (!res.ok || !body.token) throw new Error(body.error ?? 'That email and those answers do not match.');
 
   const session: CloudSession = {
     serverUrl: base(serverUrl),
@@ -178,7 +209,7 @@ export async function cloudChildSignIn(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ joinCode, childName, pin }),
   });
-  const body = (await res.json()) as { token?: string; error?: string; child?: Child };
+  const body = await readJson<{ token?: string; child?: Child }>(res);
   if (!res.ok || !body.token) throw new Error(body.error ?? 'That code is not right.');
 
   const session: CloudSession = {
@@ -499,7 +530,7 @@ export async function fetchPlans(
 ): Promise<{ checkoutAvailable: boolean; plans: PlanOption[] }> {
   const res = await fetch(`${base(serverUrl)}/billing/plans`);
   if (!res.ok) throw new Error('Could not load plans.');
-  return res.json() as Promise<{ checkoutAvailable: boolean; plans: PlanOption[] }>;
+  return readJson<{ checkoutAvailable: boolean; plans: PlanOption[] }>(res);
 }
 
 export async function startCheckout(session: CloudSession, plan: string): Promise<string> {
@@ -514,7 +545,7 @@ export async function startCheckout(session: CloudSession, plan: string): Promis
 /** Shared error shaping for the endpoints that return audio rather than JSON. */
 async function asError(res: Response): Promise<Error> {
   if (res.status === 401) return new CloudAuthError('Your session expired. Sign in again.');
-  const body = (await res.json().catch(() => ({}))) as { error?: string; upgrade?: boolean };
+  const body = await readJson<{ upgrade?: boolean }>(res);
   const error = new Error(body.error ?? `Server returned ${res.status}.`);
   if (body.upgrade) (error as Error & { upgrade?: boolean }).upgrade = true;
   return error;
@@ -532,7 +563,7 @@ export async function cloudRecoveryQuestions(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   });
-  const body = (await res.json()) as { questions?: string[]; error?: string };
+  const body = await readJson<{ questions?: string[] }>(res);
   if (!res.ok) throw new Error(body.error ?? 'Could not start recovery.');
   return body.questions ?? [];
 }
@@ -550,7 +581,7 @@ export async function cloudResetPassword(
     body: JSON.stringify({ email, answers, password }),
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    const body = await readJson<Record<string, never>>(res);
     throw new Error(body.error ?? 'Those answers do not match.');
   }
 }

@@ -1,8 +1,8 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
-import { Field, PasswordInput, TopBar, useToast } from '../../components/ui';
-import { checkPassword, normaliseAnswer } from '../../lib/crypto';
+import { Field, TopBar, useToast } from '../../components/ui';
+import { normaliseAnswer } from '../../lib/crypto';
 import {
   CUSTOM_QUESTION,
   MIN_ANSWER_LENGTH,
@@ -22,19 +22,12 @@ export default function SignUp() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
 
   const [questions, setQuestions] = useState<QuestionChoice[]>([
     { selected: SECURITY_QUESTIONS[0], custom: '', answer: '' },
     { selected: SECURITY_QUESTIONS[2], custom: '', answer: '' },
   ]);
-
-  const strength = useMemo(
-    () => checkPassword(password, [name, email.split('@')[0]]),
-    [password, name, email],
-  );
 
   const resolved = (q: QuestionChoice) =>
     q.selected === CUSTOM_QUESTION ? q.custom.trim() : q.selected;
@@ -44,9 +37,6 @@ export default function SignUp() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-
-    if (!strength.ok) return toast(strength.message);
-    if (password !== confirm) return toast('Those passwords do not match.');
 
     for (const [i, q] of questions.entries()) {
       if (!resolved(q)) return toast(`Question ${i + 1} needs to say something.`);
@@ -63,7 +53,6 @@ export default function SignUp() {
       await signUpParent({
         name,
         email,
-        password,
         questions: questions.map((q) => ({ question: resolved(q), answer: q.answer })),
       });
       navigate('/p', { replace: true });
@@ -95,7 +84,7 @@ export default function SignUp() {
             />
           </Field>
 
-          <Field label="Email" hint="Used to sign back in, and to recover your password.">
+          <Field label="Email" hint="Used to sign back in. Nothing is ever sent to it.">
             <input
               id="signup-email"
               className="input"
@@ -110,32 +99,11 @@ export default function SignUp() {
           </Field>
         </div>
 
-        <div className="card stack">
-          <Field label="Password">
-            <PasswordInput
-              id="signup-password"
-              value={password}
-              onChange={setPassword}
-              autoComplete="new-password"
-              strength={strength}
-            />
-          </Field>
-          <Field label="Confirm password">
-            <PasswordInput
-              id="signup-confirm"
-              value={confirm}
-              onChange={setConfirm}
-              autoComplete="new-password"
-              placeholder="Type it again"
-            />
-          </Field>
-        </div>
-
-        <div className="section-label">If you forget it</div>
+        <div className="section-label">How you get back in</div>
         <div className="card stack">
           <p className="muted">
-            Two questions only you can answer. There is no email reset — nothing leaves this
-            device — so pick things you will still know in two years.
+            No password. Two questions only you can answer instead — they are what let you
+            back in on a new phone, so pick things you will still know in two years.
           </p>
 
           {questions.map((q, i) => (
@@ -188,7 +156,7 @@ export default function SignUp() {
         </button>
 
         <p className="muted" style={{ textAlign: 'center' }}>
-          Your password and answers are scrambled before they are saved. Nobody can read them back,
+          Your answers are scrambled before they are saved. Nobody can read them back,
           including us.
         </p>
       </form>
