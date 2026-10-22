@@ -35,7 +35,10 @@ export function chooseVoice(data: AppData, item: LibraryItem, parentId?: string)
 export interface VoiceProgress {
   recorded: number;
   target: number;
+  /** A real clone exists and can synthesise new narration. */
   ready: boolean;
+  /** Samples are captured and kept, but nothing has been cloned yet. */
+  enrolled: boolean;
   /** Recordings good enough to train on. */
   usable: number;
   remaining: number;
@@ -52,12 +55,15 @@ export const VOICE_MINIMUM = 4;
 export function voiceProgress(data: AppData, parentId?: string): VoiceProgress {
   const mine = data.recordings.filter((r) => !parentId || r.parentId === parentId);
   const usable = mine.filter((r) => r.quality >= 0.4).length;
-  const ready = data.voices.some((v) => v.parentId === parentId && v.status === 'ready');
+  const mineVoices = data.voices.filter((v) => !parentId || v.parentId === parentId);
+  const ready = mineVoices.some((v) => v.status === 'ready');
+  const enrolled = ready || mineVoices.some((v) => v.status === 'enrolled');
 
   return {
     recorded: mine.length,
     target: VOICE_TARGET,
     ready,
+    enrolled,
     usable,
     remaining: Math.max(0, VOICE_TARGET - mine.length),
   };

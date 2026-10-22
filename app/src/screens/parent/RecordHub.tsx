@@ -46,13 +46,30 @@ export default function RecordHub() {
       {/* ---- the deal, stated plainly ---- */}
       <div className="card">
         <div className="card__head">
-          <div className="avatar" aria-hidden>{progress.ready ? '✅' : '🎙️'}</div>
+          <div className="avatar" aria-hidden>
+            {progress.ready ? '✅' : progress.enrolled ? '🎤' : '🎙️'}
+          </div>
           <div style={{ flex: 1 }}>
-            <h3>{progress.ready ? 'Set and forget' : 'Ten short recordings'}</h3>
+            <h3>
+              {progress.ready
+                ? 'Set and forget'
+                : progress.enrolled
+                  ? 'Your voice is saved'
+                  : 'Record in your own voice'}
+            </h3>
+            {/*
+              This used to promise that after ten recordings "everything else
+              reads itself in your voice". Synthesising a voice needs the
+              cloning backend, so in this build that was a promise the app
+              could not keep — and the one promise it must never break. What
+              it can do, it says.
+            */}
             <p className="muted">
               {progress.ready
                 ? 'Every story and song from now on comes out in your voice automatically. You do not have to record again.'
-                : 'Most are under a minute. After ten, everything else reads itself in your voice — you never record again unless you want to.'}
+                : progress.enrolled
+                  ? 'Everything you have recorded plays in your real voice, and the nightly story is picked from those first. Record more to widen what your child hears.'
+                  : 'Most are under a minute. Every one you record plays back in your real voice — and the nightly story picks from those first.'}
             </p>
           </div>
         </div>
@@ -63,9 +80,9 @@ export default function RecordHub() {
             {progress.recorded === 0
               ? `Start with one. It takes about a minute.`
               : progress.recorded < VOICE_MINIMUM
-                ? `${VOICE_MINIMUM - progress.recorded} more before your voice can be built at all.`
+                ? `${VOICE_MINIMUM - progress.recorded} more before your voice can be saved.`
                 : progress.remaining > 0
-                  ? `${progress.remaining} to go. You can build your voice now, but more recordings make it sound more like you.`
+                  ? `${progress.recorded} recorded, ${progress.remaining} to go. Each one is another story your child hears in your actual voice.`
                   : 'All ten done.'}
           </p>
         </div>
@@ -80,7 +97,7 @@ export default function RecordHub() {
           </button>
         )}
 
-        {progress.usable >= VOICE_MINIMUM && !progress.ready && (
+        {progress.usable >= VOICE_MINIMUM && !progress.enrolled && (
           <button
             className="btn btn--soft btn--block btn--sm"
             style={{ marginTop: 10 }}

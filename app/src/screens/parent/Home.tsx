@@ -118,8 +118,8 @@ export default function ParentHome() {
           </button>
         }
       >
-        Most are under a minute. After that, every story and song reads itself in your voice and
-        you never have to record again.
+        Most are under a minute. Every one you record is a story your child hears in your
+        actual voice — and the nightly story is picked from those first.
       </Coach>
 
       <Coach
@@ -222,7 +222,9 @@ export default function ParentHome() {
           body={
             progress.ready
               ? 'Done — everything reads itself in your voice now.'
-              : `${progress.recorded} of ${VOICE_TARGET} short recordings done.`
+              : progress.enrolled
+                ? `${progress.recorded} saved. Record more to widen what plays in your voice.`
+                : `${progress.recorded} of ${VOICE_TARGET} short recordings done.`
           }
           onClick={() => navigate('/p/record')}
         />
