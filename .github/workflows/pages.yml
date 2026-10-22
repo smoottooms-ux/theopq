@@ -98,5 +98,36 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # deploy-pages fails with a bare "HttpError: Not Found" and an octokit
+      # stack trace when Pages has never been turned on, which reads like a
+      # broken workflow rather than a one-tap setting. This says which it is.
+      - name: Check Pages is turned on
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          api="https://api.github.com/repos/${{ github.repository }}/pages"
+          code=$(curl -sS -o /tmp/pages.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" "$api")
+
+          if [ "$code" = "404" ]; then
+            echo "::error title=GitHub Pages is not enabled::Turn it on once at https://github.com/${{ github.repository }}/settings/pages — set Source to 'GitHub Actions'. Nothing else is wrong: the app built and passed its installability checks, there is just nowhere to publish it to yet."
+            exit 1
+          fi
+
+          build_type=$(python3 -c "import json;print(json.load(open('/tmp/pages.json')).get('build_type',''))" 2>/dev/null || echo '')
+          if [ "$build_type" != "workflow" ]; then
+            echo "::error title=Pages is not set to build from Actions::At https://github.com/${{ github.repository }}/settings/pages set Source to 'GitHub Actions' (it is currently '${build_type:-unset}')."
+            exit 1
+          fi
+
+          echo "✓ Pages is enabled and building from Actions"
+
       - id: deploy
         uses: actions/deploy-pages@v4
+
+      - name: Where it went
+        run: |
+          echo "::notice title=Live::${{ steps.deploy.outputs.page_url }}"
+          echo "On an iPhone: open that in Safari, then Share then Add to Home Screen."
