@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../lib/store';
 import { useCloud } from '../../lib/useCloud';
 import { Field, PinInput, TopBar, useToast } from '../../components/ui';
-import { checkServer, cloudChildSignIn } from '../../lib/cloud';
+import { cloudChildSignIn, defaultServerUrl } from '../../lib/cloud';
+import { HAS_HOSTED_BACKEND } from '../../lib/config';
 
 /**
  * Pairing a child's own device.
@@ -13,11 +14,10 @@ import { checkServer, cloudChildSignIn } from '../../lib/cloud';
  */
 export default function PairDevice() {
   const navigate = useNavigate();
-  const { update, setSettings, signInChild } = useApp();
+  const { update, signInChild } = useApp();
   const { connect } = useCloud();
   const toast = useToast();
 
-  const [serverUrl, setServerUrl] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [childName, setChildName] = useState('');
   const [pin, setPin] = useState('');
@@ -26,11 +26,13 @@ export default function PairDevice() {
   const pair = async () => {
     setBusy(true);
     try {
-      if (!(await checkServer(serverUrl))) throw new Error('Cannot reach that address.');
-
-      const { session, child } = await cloudChildSignIn(serverUrl, joinCode.toUpperCase(), childName, pin);
+      const { session, child } = await cloudChildSignIn(
+        defaultServerUrl(),
+        joinCode.toUpperCase(),
+        childName,
+        pin,
+      );
       connect(session);
-      setSettings({ serverUrl: session.serverUrl });
 
       // Keep a local copy so the child screen works with no signal.
       update((d) => {
@@ -57,6 +59,44 @@ export default function PairDevice() {
     }
   };
 
+  /*
+   * Pairing a second device needs the account server to carry stories between
+   * them. With no server there is nothing to pair against, and the old screen
+   * failed by asking a child for a URL. Children are not locked out: a profile
+   * on the grown-up's own phone is how this build works, and that is what it
+   * now says.
+   */
+  if (!HAS_HOSTED_BACKEND) {
+    return (
+      <div className="screen" data-skin="kid">
+        <TopBar title="Connect this tablet" onBack={() => navigate('/welcome')} />
+
+        <div className="card">
+          <div className="avatar avatar--lg" style={{ margin: '0 auto 12px' }} aria-hidden>
+            📱
+          </div>
+          <h2 style={{ textAlign: 'center' }}>Use your grown-up's phone</h2>
+          <p className="soft" style={{ marginTop: 10 }}>
+            This Story Station keeps everything on one phone, so there is nothing for a
+            second tablet to connect to yet.
+          </p>
+          <p className="soft" style={{ marginTop: 10 }}>
+            Open Story Station on your grown-up's phone and tap your own name. Your stories,
+            your books and your games are all in there waiting.
+          </p>
+        </div>
+
+        <button
+          className="btn btn--block btn--lg"
+          style={{ marginTop: 16 }}
+          onClick={() => navigate('/welcome')}
+        >
+          OK
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="screen" data-skin="kid">
       <TopBar title="Connect this tablet" onBack={() => navigate('/welcome')} />
@@ -68,18 +108,10 @@ export default function PairDevice() {
       </div>
 
       <div className="card stack">
-        <Field label="Server address" hint="Your grown-up has this too.">
-          <input
-            className="input"
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            placeholder="https://…"
-            autoCapitalize="none"
-            autoCorrect="off"
-            inputMode="url"
-          />
-        </Field>
-
+        {/*
+          This asked a seven-year-old to type a server URL. Third copy of that
+          box in the app, and by far the worst place for it.
+        */}
         <Field label="Family code">
           <input
             className="input"
