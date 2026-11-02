@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Data Processing Agreement — OPQ Enterprises / TownSquare AI</title>
+<meta name="description" content="Data Processing Agreement (DPA) for TownSquare AI customers, covering GDPR Art. 28, CCPA/CPRA service-provider terms, sub-processors, security, breach notice, and data-subject rights."/>
+<style>
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:820px;margin:0 auto;padding:32px 20px;color:#111;line-height:1.6}
+h1{font-size:1.9rem}h2{font-size:1.25rem;margin-top:2rem}h3{font-size:1.05rem;margin-top:1.4rem}
+a{color:#0b61d6}.muted{color:#555;font-size:.9rem}
+.box{background:#f5f8ff;border:1px solid #d6e2ff;border-radius:8px;padding:14px 18px;margin:18px 0}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:.95rem}
+th,td{border:1px solid #d6e2ff;padding:8px 10px;text-align:left}
+th{background:#f5f8ff}
+</style>
+</head>
+<body>
+<h1>Data Processing Agreement</h1>
+<p class="muted">OPQ Enterprises (operator of TownSquare AI) · 4227 W Church St, Springfield, MO 65802 · Last updated: November 2, 2026</p>
+
+<p>This Data Processing Agreement ("DPA") forms part of the TownSquare AI Terms of Service (the "Agreement") between OPQ Enterprises ("OPQ," "we," "us") and the business customer ("Customer," "you"). It governs how OPQ processes personal data on your behalf when you use TownSquare AI, and is incorporated into the Agreement by reference. For self-serve customers it is accepted at sign-up; for negotiated accounts it may be signed using the block below.</p>
+
+<div class="box">
+<p style="margin:0"><strong>Two layers of data.</strong> TownSquare processes (1) your own account data (business info, staff logins, settings), and (2) the data of the people who call or text your business — their phone number, name, call recording, transcript, and anything they say. Because OPQ handles layer 2 <strong>on your behalf</strong>, OPQ is the <strong>processor / service provider</strong> and you are the <strong>controller / business</strong>.</p>
+</div>
+
+<h2>1. Definitions</h2>
+<ul>
+<li><strong>"Agreement"</strong> — the TownSquare AI Terms of Service between OPQ and Customer.</li>
+<li><strong>"Controller," "Processor," "Data Subject," "Personal Data," "Processing," "Supervisory Authority"</strong> — as defined in the GDPR.</li>
+<li><strong>"Business," "Service Provider," "Consumer," "Sell," "Share"</strong> — as defined in the CCPA/CPRA.</li>
+<li><strong>"Customer Personal Data"</strong> — Personal Data that OPQ processes on Customer's behalf under the Agreement (principally: inbound/outbound caller and texter phone numbers, names, call recordings, transcripts, call metadata, and message content).</li>
+<li><strong>"Data Protection Laws"</strong> — all privacy/data-protection laws applicable to a party's Processing, including the GDPR, UK GDPR, and the CCPA/CPRA, as amended.</li>
+<li><strong>"Sub-processor"</strong> — a third party engaged by OPQ to Process Customer Personal Data.</li>
+</ul>
+
+<h2>2. Roles of the parties</h2>
+<p>2.1 For Customer Personal Data, <strong>Customer is the Controller/Business</strong> and <strong>OPQ is the Processor/Service Provider</strong>.</p>
+<p>2.2 OPQ will Process Customer Personal Data only (a) to provide and support the Service, (b) on Customer's documented instructions (the Agreement and this DPA are such instructions), and (c) as required by law — in which case OPQ will notify Customer first unless the law forbids it.</p>
+<p>2.3 <strong>CCPA/CPRA service-provider commitment.</strong> OPQ will <strong>not</strong> Sell or Share Customer Personal Data, will <strong>not</strong> retain, use, or disclose it for any purpose other than performing the Service, and will <strong>not</strong> combine it with data from other sources except as permitted by the CCPA. OPQ certifies it understands and will comply with these restrictions.</p>
+<p>2.4 <strong>No AI-training use.</strong> OPQ will not use Customer Personal Data, call recordings, or transcripts to train its own or any third party's general AI/ML models. Model providers are instructed and configured not to train on this data.</p>
+
+<h2>3. Subject matter &amp; details of Processing (GDPR Art. 28(3))</h2>
+<ul>
+<li><strong>Subject matter:</strong> provision of an AI phone receptionist and back-office SaaS.</li>
+<li><strong>Duration:</strong> the term of the Agreement, plus the retention windows in §8.</li>
+<li><strong>Nature &amp; purpose:</strong> answering and placing calls, recording and transcribing them, capturing leads/appointments, sending SMS, and storing the results for the Customer.</li>
+<li><strong>Types of Personal Data:</strong> phone numbers; names; voice recordings; transcripts; message content; call metadata (time, duration, direction, outcome); any personal details a caller volunteers.</li>
+<li><strong>Categories of Data Subjects:</strong> the Customer's own callers, texters, leads, and customers; the Customer's staff/users.</li>
+<li><strong>Special-category data:</strong> not intentionally collected; callers may volunteer it in free speech. OPQ does not solicit it.</li>
+</ul>
+
+<h2>4. Security measures (GDPR Art. 32)</h2>
+<p>OPQ maintains technical and organizational measures appropriate to the risk, including:</p>
+<ul>
+<li>Encryption of data in transit (TLS) and at rest.</li>
+<li>Tenant isolation so one Customer's data is never accessible to another (membership-scoped access controls).</li>
+<li>Access controls and least-privilege for OPQ personnel; credentials rotated on exposure.</li>
+<li>Signed, access-controlled URLs for call-recording media.</li>
+<li>Logging, health monitoring, and a breach-response process (§6).</li>
+<li>Secure software development and dependency management.</li>
+</ul>
+<p>A fuller description is available to Customer on request. Measures may be updated so long as security is not materially weakened.</p>
+
+<h2>5. Sub-processors</h2>
+<p>5.1 Customer authorizes OPQ to engage Sub-processors to provide the Service. Current Sub-processors include:</p>
+<table>
+<tr><th>Sub-processor</th><th>Purpose</th><th>Data location</th></tr>
+<tr><td>Vercel</td><td>Application hosting</td><td>USA</td></tr>
+<tr><td>Neon</td><td>Primary database</td><td>USA</td></tr>
+<tr><td>Twilio</td><td>Telephony / SMS carriage</td><td>USA</td></tr>
+<tr><td>Vapi</td><td>Voice-agent orchestration</td><td>USA</td></tr>
+<tr><td>Anthropic</td><td>LLM responses</td><td>USA</td></tr>
+<tr><td>Deepgram</td><td>Speech-to-text</td><td>USA</td></tr>
+<tr><td>Stripe</td><td>Billing / payments</td><td>USA</td></tr>
+<tr><td>Clerk</td><td>Authentication</td><td>USA</td></tr>
+</table>
+<p>5.2 OPQ imposes data-protection obligations on each Sub-processor no less protective than this DPA, and remains liable for their performance.</p>
+<p>5.3 OPQ will give Customer notice of a new or replacement Sub-processor before it starts Processing, and Customer may object on reasonable data-protection grounds; the parties will then work in good faith to resolve it.</p>
+
+<h2>6. Personal-data breach</h2>
+<p>6.1 OPQ will notify Customer <strong>without undue delay (and in any case within 72 hours)</strong> after becoming aware of a Personal-Data Breach affecting Customer Personal Data.</p>
+<p>6.2 The notice will describe, to the extent known, the nature of the breach, likely consequences, measures taken or proposed, and a contact point. OPQ will reasonably assist Customer with its own notification duties to Supervisory Authorities and Data Subjects.</p>
+
+<h2>7. Assistance with data-subject rights &amp; compliance</h2>
+<p>7.1 Taking account of the nature of Processing, OPQ will assist Customer (by appropriate technical and organizational measures, insofar as possible) to respond to Data-Subject requests to exercise rights of access, correction, deletion, restriction, portability, and objection — including GDPR Arts. 12–22 and the equivalent CCPA/CPRA consumer rights.</p>
+<p>7.2 OPQ provides self-service account and data deletion in-product; Customer may also request export or erasure of a Data Subject's data by contacting OPQ.</p>
+<p>7.3 OPQ will assist Customer with data-protection impact assessments and prior consultations (GDPR Arts. 35–36) where required, taking into account the information available to OPQ.</p>
+
+<h2>8. Retention, return &amp; deletion</h2>
+<p>8.1 Call recordings and transcripts are retained on a <strong>rolling 90-day window</strong> and then automatically deleted, unless Customer configures a shorter window or law requires otherwise. See our <a href="/retention.html">Call Recording Retention &amp; Destruction Policy</a>.</p>
+<p>8.2 On termination of the Agreement, OPQ will, at Customer's choice, return or delete Customer Personal Data within a reasonable period, except where retention is required by law. Backups cycle out on their normal schedule.</p>
+
+<h2>9. International transfers</h2>
+<p>9.1 OPQ Processes Customer Personal Data in the <strong>United States</strong>. Where Customer or its Data Subjects are in the EEA, UK, or Switzerland, the parties agree that the <strong>EU Standard Contractual Clauses (SCCs)</strong> (and the UK IDTA/Addendum where applicable) are incorporated by reference to legitimize the transfer, with OPQ as "data importer" and Customer as "data exporter," module Controller-to-Processor.</p>
+<p>9.2 Where OPQ actively offers the Service to data subjects in the EEA, OPQ will confirm a valid transfer mechanism and, where required, appoint an EU/UK Article 27 Representative.</p>
+
+<h2>10. Audit</h2>
+<p>OPQ will make available information reasonably necessary to demonstrate compliance with this DPA and allow for audits, subject to confidentiality and reasonable notice; a recent third-party report or questionnaire response satisfies this where available.</p>
+
+<h2>11. Liability &amp; order of precedence</h2>
+<p>This DPA forms part of the Agreement. In case of conflict on data-protection matters, this DPA controls. Liability is subject to the limitations in the Agreement.</p>
+
+<h2>12. Signature (negotiated / enterprise customers)</h2>
+<p>For self-serve customers, this DPA is incorporated into the Terms of Service and accepted at sign-up; no separate signature is required. Negotiated customers may execute below.</p>
+<table>
+<tr><th></th><th>Customer (Controller)</th><th>OPQ Enterprises (Processor)</th></tr>
+<tr><td>Name</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+<tr><td>Title</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+<tr><td>Date</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+</table>
+
+<h2>Contact</h2>
+<p>OPQ Enterprises<br/>4227 W Church St, Springfield, MO 65802<br/>Email: <a href="mailto:josh.smoot@theopq.com">josh.smoot@theopq.com</a><br/>Phone: (417) 693-5678</p>
+
+<p class="muted"><a href="/">← Back to OPQ Enterprises</a> · <a href="/privacy.html">Privacy Policy</a> · <a href="/retention.html">Retention Policy</a> · <a href="/sms-terms.html">SMS Terms</a></p>
+</body>
+</html>
