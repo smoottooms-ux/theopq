@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>TikTok Connect — OPQ Enterprises</title>
+<meta name="description" content="OAuth callback for the Heard It Here Springfield TikTok integration by OPQ Enterprises."/>
+<style>
+body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:720px;margin:0 auto;padding:40px 20px;color:#111;line-height:1.6}
+h1{font-size:1.6rem}
+.box{background:#f5f8ff;border:1px solid #d6e2ff;border-radius:8px;padding:16px 18px;margin:18px 0;word-break:break-all}
+code{background:#eef;padding:2px 6px;border-radius:4px}
+.muted{color:#555;font-size:.9rem}
+button{font-size:1rem;padding:8px 16px;border-radius:6px;border:1px solid #0b61d6;background:#0b61d6;color:#fff;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>TikTok Connection</h1>
+<p>This page completes the TikTok authorization for <strong>Heard It Here Springfield</strong> (OPQ Enterprises).</p>
+<div class="box" id="result">Reading authorization response…</div>
+<p class="muted">You can close this page after copying the code shown above.</p>
+<script>
+(function(){
+  var p = new URLSearchParams(window.location.search);
+  var code = p.get('code');
+  var err = p.get('error');
+  var box = document.getElementById('result');
+  if (err) {
+    box.innerHTML = '<strong>Authorization error:</strong> ' + err + ' — ' + (p.get('error_description')||'');
+  } else if (code) {
+    box.innerHTML = '<strong>Authorization code:</strong><br><code id="c">' + code + '</code><br><br>' +
+      '<button onclick="navigator.clipboard.writeText(document.getElementById(\'c\').innerText)">Copy code</button>';
+  } else {
+    box.innerHTML = 'No authorization code present in the URL.';
+  }
+})();
+</script>
+</body>
+</html>
