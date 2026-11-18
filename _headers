@@ -1,3 +1,7 @@
 /clipfarm/*
   Access-Control-Allow-Origin: *
   Cache-Control: no-store
+
+/downloads/*
+  Access-Control-Allow-Origin: *
+  Content-Disposition: attachment
